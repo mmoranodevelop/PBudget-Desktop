@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
+import { CalendarRange, Copy, Plus, Trash2 } from 'lucide-react'
 import type { BudgetVsActual, Category } from '@shared/types'
 import { api, fmtEur, MONTH_NAMES, MONTH_SHORT } from '../api'
-import { CategorySelect, Modal } from '../components'
+import { BudgetBar, CategorySelect, ModalShell } from '../components'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from '@/components/ui/table'
+import { cn } from '@/lib/utils'
 
 export default function Budget({ categories }: { categories: Category[] }): JSX.Element {
   const now = new Date()
@@ -44,12 +56,9 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
     const amount = Number(value.replace(',', '.'))
     if (!isFinite(amount) || amount < 0) return
     await api.budgetSet(year, categoryId, m, amount)
-    load()
-    if (detail) {
-      const updated = await api.budgetVsActual(year, month)
-      setRows(updated)
-      setDetail(updated.find((r) => r.categoryId === detail.categoryId) ?? null)
-    }
+    const updated = await api.budgetVsActual(year, month)
+    setRows(updated)
+    if (detail) setDetail(updated.find((r) => r.categoryId === detail.categoryId) ?? null)
   }
 
   const removeLine = async (categoryId: number): Promise<void> => {
@@ -62,163 +71,213 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
   const totalBudget = rows.reduce((a, r) => a + r.budgetYear, 0)
   const totalActual = rows.reduce((a, r) => a + r.actualYear, 0)
 
-  const bar = (actual: number, budget: number): JSX.Element => {
-    const pct = budget > 0 ? Math.min(130, (actual / budget) * 100) : 0
-    const color = pct > 100 ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : 'var(--green)'
-    return (
-      <div className="progress" style={{ width: 140 }}>
-        <div style={{ width: `${Math.min(100, pct)}%`, background: color }} />
-      </div>
-    )
-  }
-
   return (
-    <div>
-      <div className="row" style={{ justifyContent: 'space-between' }}>
+    <div className="space-y-4">
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="page-title">Budget {year}</h1>
-          <p className="page-sub">
-            Budget annuale con dettaglio mensile. Il budget su una macro-categoria aggrega le sottocategorie
-            (cluster).
+          <h1 className="text-2xl font-semibold tracking-tight">Budget {year}</h1>
+          <p className="text-sm text-muted-foreground">
+            Budget annuale con dettaglio mensile. Il budget su una macro-categoria aggrega le
+            sottocategorie (cluster).
           </p>
         </div>
-        <div className="row">
-          <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-            {MONTH_NAMES.map((m, i) => (
-              <option key={i} value={i + 1}>
-                {m}
-              </option>
-            ))}
-          </select>
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
-            {[1, 0, -1].map((d) => {
-              const y = now.getFullYear() + d
-              return (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              )
-            })}
-          </select>
+        <div className="flex gap-2">
+          <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
+            <SelectTrigger size="sm" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MONTH_NAMES.map((m, i) => (
+                <SelectItem key={i} value={String(i + 1)}>
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+            <SelectTrigger size="sm" className="w-24">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[1, 0, -1].map((d) => {
+                const y = now.getFullYear() + d
+                return (
+                  <SelectItem key={y} value={String(y)}>
+                    {y}
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      <div className="grid kpi-row mb">
-        <div className="card kpi">
-          <div className="label">Budget annuale totale</div>
-          <div className="value">{fmtEur(totalBudget)}</div>
-        </div>
-        <div className="card kpi">
-          <div className="label">Speso finora (categorie a budget)</div>
-          <div className={`value ${totalActual > totalBudget ? 'neg' : ''}`}>{fmtEur(totalActual)}</div>
-        </div>
-        <div className="card kpi">
-          <div className="label">Residuo</div>
-          <div className={`value ${totalBudget - totalActual >= 0 ? 'pos' : 'neg'}`}>
+      <div className="grid grid-cols-3 gap-4">
+        <Card className="gap-1 py-4">
+          <CardHeader className="px-4">
+            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Budget annuale totale
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 text-2xl font-semibold tabular-nums">
+            {fmtEur(totalBudget)}
+          </CardContent>
+        </Card>
+        <Card className="gap-1 py-4">
+          <CardHeader className="px-4">
+            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Speso finora
+            </CardTitle>
+          </CardHeader>
+          <CardContent
+            className={cn(
+              'px-4 text-2xl font-semibold tabular-nums',
+              totalActual > totalBudget && 'text-chart-expense'
+            )}
+          >
+            {fmtEur(totalActual)}
+          </CardContent>
+        </Card>
+        <Card className="gap-1 py-4">
+          <CardHeader className="px-4">
+            <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Residuo
+            </CardTitle>
+          </CardHeader>
+          <CardContent
+            className={cn(
+              'px-4 text-2xl font-semibold tabular-nums',
+              totalBudget - totalActual >= 0 ? 'text-chart-income' : 'text-chart-expense'
+            )}
+          >
             {fmtEur(totalBudget - totalActual)}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="toolbar">
+      <div className="flex flex-wrap items-center gap-2">
         <CategorySelect
           categories={categories.filter((c) => c.type === 'expense')}
           value={addCat}
           onChange={setAddCat}
-          emptyLabel="— scegli categoria o cluster —"
+          emptyLabel="Scegli categoria o cluster"
         />
-        <input
+        <Input
           placeholder="Budget annuale €"
-          style={{ width: 130 }}
+          className="h-8 w-36"
           value={addAmount}
           onChange={(e) => setAddAmount(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && addLine()}
         />
-        <button className="btn" onClick={addLine} disabled={addCat == null || !addAmount}>
-          + Aggiungi budget
-        </button>
-        <div className="spacer" />
-        <button className="btn secondary" onClick={copyFromActual} disabled={busy}>
+        <Button size="sm" onClick={addLine} disabled={addCat == null || !addAmount}>
+          <Plus className="size-4" />
+          Aggiungi budget
+        </Button>
+        <div className="flex-1" />
+        <Button variant="outline" size="sm" onClick={copyFromActual} disabled={busy}>
+          <Copy className="size-4" />
           Copia da spese {year - 1}
-        </button>
+        </Button>
       </div>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Categoria / Cluster</th>
-              <th className="num">Budget {MONTH_SHORT[month - 1]}</th>
-              <th className="num">Speso {MONTH_SHORT[month - 1]}</th>
-              <th>Avanzamento mese</th>
-              <th className="num">Budget anno</th>
-              <th className="num">Speso anno</th>
-              <th>Avanzamento anno</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
+      <div className="overflow-auto rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Categoria / Cluster</TableHead>
+              <TableHead className="text-right">Budget {MONTH_SHORT[month - 1]}</TableHead>
+              <TableHead className="text-right">Speso {MONTH_SHORT[month - 1]}</TableHead>
+              <TableHead>Mese</TableHead>
+              <TableHead className="text-right">Budget anno</TableHead>
+              <TableHead className="text-right">Speso anno</TableHead>
+              <TableHead>Anno</TableHead>
+              <TableHead className="w-28" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map((r) => (
-              <tr key={r.categoryId}>
-                <td>
-                  <span className="badge" style={{ background: `${r.color}22`, color: r.color }}>
-                    <span className="dot" style={{ background: r.color }} />
+              <TableRow key={r.categoryId}>
+                <TableCell>
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
+                    style={{ backgroundColor: `${r.color}1f`, color: r.color }}
+                  >
+                    <span className="size-2 rounded-full" style={{ backgroundColor: r.color }} />
                     {r.categoryName}
                   </span>
-                </td>
-                <td className="num">{fmtEur(r.budgetMonth)}</td>
-                <td className={`num ${r.actualMonth > r.budgetMonth && r.budgetMonth > 0 ? 'neg' : ''}`}>
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{fmtEur(r.budgetMonth)}</TableCell>
+                <TableCell
+                  className={cn(
+                    'text-right tabular-nums',
+                    r.actualMonth > r.budgetMonth && r.budgetMonth > 0 && 'text-chart-expense'
+                  )}
+                >
                   {fmtEur(r.actualMonth)}
-                </td>
-                <td>{bar(r.actualMonth, r.budgetMonth)}</td>
-                <td className="num">{fmtEur(r.budgetYear)}</td>
-                <td className={`num ${r.actualYear > r.budgetYear ? 'neg' : ''}`}>{fmtEur(r.actualYear)}</td>
-                <td>{bar(r.actualYear, r.budgetYear)}</td>
-                <td>
-                  <button className="btn small secondary" onClick={() => setDetail(r)}>
+                </TableCell>
+                <TableCell>
+                  <BudgetBar actual={r.actualMonth} budget={r.budgetMonth} />
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{fmtEur(r.budgetYear)}</TableCell>
+                <TableCell
+                  className={cn(
+                    'text-right tabular-nums',
+                    r.actualYear > r.budgetYear && 'text-chart-expense'
+                  )}
+                >
+                  {fmtEur(r.actualYear)}
+                </TableCell>
+                <TableCell>
+                  <BudgetBar actual={r.actualYear} budget={r.budgetYear} />
+                </TableCell>
+                <TableCell>
+                  <Button variant="outline" size="sm" onClick={() => setDetail(r)}>
+                    <CalendarRange className="size-3.5" />
                     Mensilizza
-                  </button>
-                </td>
-              </tr>
+                  </Button>
+                </TableCell>
+              </TableRow>
             ))}
             {rows.length === 0 && (
-              <tr>
-                <td colSpan={8} className="muted" style={{ textAlign: 'center', padding: 24 }}>
-                  Nessun budget definito per il {year}. Aggiungi una categoria qui sopra, oppure copia dalle
-                  spese dell'anno precedente.
-                </td>
-              </tr>
+              <TableRow>
+                <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                  Nessun budget definito per il {year}. Aggiungi una categoria qui sopra, oppure copia
+                  dalle spese dell'anno precedente.
+                </TableCell>
+              </TableRow>
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {detail && (
-        <Modal title={`Budget mensile — ${detail.categoryName} (${year})`} onClose={() => setDetail(null)}>
-          <p className="small muted">
-            Lascia il valore proposto (budget annuale ÷ 12) o personalizza i singoli mesi.
-          </p>
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <ModalShell
+          title={`Budget mensile — ${detail.categoryName} (${year})`}
+          description="Lascia il valore proposto (budget annuale diviso 12) o personalizza i singoli mesi."
+          onClose={() => setDetail(null)}
+          wide
+        >
+          <div className="grid grid-cols-3 gap-3">
             {detail.monthly.map((m) => (
-              <label key={m.month} className="field">
-                {MONTH_NAMES[m.month - 1]}
-                <input
+              <div key={m.month} className="space-y-1">
+                <Label className="text-xs text-muted-foreground">{MONTH_NAMES[m.month - 1]}</Label>
+                <Input
+                  className="h-8"
                   defaultValue={m.budget.toFixed(2)}
                   onBlur={(e) => setMonthly(detail.categoryId, m.month, e.target.value)}
                 />
-                <span className="small muted">speso: {fmtEur(m.actual)}</span>
-              </label>
+                <p className="text-xs text-muted-foreground">speso: {fmtEur(m.actual)}</p>
+              </div>
             ))}
           </div>
-          <div className="actions">
-            <button className="btn danger" onClick={() => removeLine(detail.categoryId)}>
+          <div className="flex justify-between pt-2">
+            <Button variant="destructive" onClick={() => removeLine(detail.categoryId)}>
+              <Trash2 className="size-4" />
               Rimuovi budget
-            </button>
-            <button className="btn" onClick={() => setDetail(null)}>
-              Chiudi
-            </button>
+            </Button>
+            <Button onClick={() => setDetail(null)}>Chiudi</Button>
           </div>
-        </Modal>
+        </ModalShell>
       )}
     </div>
   )

@@ -11,7 +11,7 @@ interface SeedCategory {
 const CATEGORIES: SeedCategory[] = [
   {
     name: 'Entrate',
-    color: '#22c55e',
+    color: '#199e70',
     type: 'income',
     children: [
       { name: 'Stipendio' },
@@ -22,7 +22,7 @@ const CATEGORIES: SeedCategory[] = [
   },
   {
     name: 'Casa',
-    color: '#f59e0b',
+    color: '#c98500',
     type: 'expense',
     children: [
       { name: 'Affitto/Mutuo' },
@@ -33,13 +33,13 @@ const CATEGORIES: SeedCategory[] = [
   },
   {
     name: 'Alimentari',
-    color: '#ef4444',
+    color: '#d95926',
     type: 'expense',
     children: [{ name: 'Supermercato' }, { name: 'Ristoranti e Bar' }, { name: 'Delivery' }]
   },
   {
     name: 'Trasporti',
-    color: '#3b82f6',
+    color: '#3987e5',
     type: 'expense',
     children: [
       { name: 'Carburante' },
@@ -50,13 +50,13 @@ const CATEGORIES: SeedCategory[] = [
   },
   {
     name: 'Salute',
-    color: '#14b8a6',
+    color: '#e66767',
     type: 'expense',
     children: [{ name: 'Medico e Farmacia' }, { name: 'Assicurazioni' }]
   },
   {
     name: 'Svago',
-    color: '#a855f7',
+    color: '#9085e9',
     type: 'expense',
     children: [
       { name: 'Abbonamenti' },
@@ -77,8 +77,8 @@ const CATEGORIES: SeedCategory[] = [
       { name: 'Risparmio e Investimenti' }
     ]
   },
-  { name: 'Trasferimenti', color: '#94a3b8', type: 'transfer', system: true },
-  { name: 'Da categorizzare', color: '#e2e8f0', type: 'expense', system: true }
+  { name: 'Trasferimenti', color: '#737373', type: 'transfer', system: true },
+  { name: 'Da categorizzare', color: '#a3a3a3', type: 'expense', system: true }
 ]
 
 // Regole precompilate per il formato UniCredit del dataset di test

@@ -1,7 +1,20 @@
 import { useEffect, useState } from 'react'
+import { FlaskConical, Pencil, Plus, Trash2, Wand2, X } from 'lucide-react'
 import type { Category, Rule, RuleField, RuleMatchType, Tag } from '@shared/types'
 import { api } from '../api'
-import { CategorySelect, Modal } from '../components'
+import { CategorySelect, ModalShell } from '../components'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from '@/components/ui/table'
 
 const FIELD_LABEL: Record<RuleField, string> = {
   description: 'Descrizione',
@@ -25,9 +38,12 @@ export default function CategoriesRules({
   const [editCat, setEditCat] = useState<Partial<Category> | null>(null)
   const [deleteCat, setDeleteCat] = useState<Category | null>(null)
   const [reassignTo, setReassignTo] = useState<number | null>(null)
-  const [newRule, setNewRule] = useState<{ field: RuleField; matchType: RuleMatchType; pattern: string; categoryId: number | null }>({
-    field: 'merchant', matchType: 'contains', pattern: '', categoryId: null
-  })
+  const [newRule, setNewRule] = useState<{
+    field: RuleField
+    matchType: RuleMatchType
+    pattern: string
+    categoryId: number | null
+  }>({ field: 'merchant', matchType: 'contains', pattern: '', categoryId: null })
   const [testCount, setTestCount] = useState<number | null>(null)
   const [applyResult, setApplyResult] = useState<number | null>(null)
 
@@ -43,7 +59,7 @@ export default function CategoriesRules({
     } else {
       await api.catCreate({
         name: editCat.name,
-        color: editCat.color ?? '#8884d8',
+        color: editCat.color ?? '#3987e5',
         type: editCat.type ?? 'expense',
         parentId: editCat.parentId ?? null,
         sortOrder: 999
@@ -91,263 +107,322 @@ export default function CategoriesRules({
   const catName = (id: number): string => categories.find((c) => c.id === id)?.name ?? '?'
 
   return (
-    <div>
-      <h1 className="page-title">Categorie & Regole</h1>
-      <p className="page-sub">
-        Personalizza il kit di categorie e le regole di categorizzazione automatica.
-      </p>
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Categorie e Regole</h1>
+        <p className="text-sm text-muted-foreground">
+          Personalizza il kit di categorie e le regole di categorizzazione automatica.
+        </p>
+      </div>
 
       {applyResult != null && (
-        <div className="banner success">
-          ✓ Regole applicate: {applyResult} movimenti categorizzati.{' '}
-          <button className="btn small secondary" onClick={() => setApplyResult(null)}>
-            Chiudi
-          </button>
-        </div>
+        <Alert className="border-chart-income/40">
+          <AlertDescription className="flex items-center justify-between">
+            <span>Regole applicate: {applyResult} movimenti categorizzati.</span>
+            <Button variant="ghost" size="icon-sm" onClick={() => setApplyResult(null)}>
+              <X className="size-4" />
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1.3fr' }}>
-        <div className="card">
-          <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
-            <h3 style={{ margin: 0 }}>Categorie</h3>
-            <button className="btn small" onClick={() => setEditCat({ type: 'expense', color: '#8884d8', parentId: null })}>
-              + Nuova
-            </button>
-          </div>
-          <div style={{ maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' }}>
-            {parents.map((p) => (
-              <div key={p.id} style={{ marginBottom: 8 }}>
-                <div className="row" style={{ justifyContent: 'space-between' }}>
-                  <span className="badge" style={{ background: `${p.color}22`, color: p.color }}>
-                    <span className="dot" style={{ background: p.color }} />
-                    {p.name}
-                    {p.type === 'income' && ' (entrate)'}
-                    {p.type === 'transfer' && ' (trasferimenti)'}
-                  </span>
-                  <span className="row" style={{ gap: 4 }}>
-                    <button className="btn small secondary" onClick={() => setEditCat(p)}>
-                      ✎
-                    </button>
-                    {!p.isSystem && (
-                      <button className="btn small secondary" onClick={() => setDeleteCat(p)}>
-                        🗑
-                      </button>
-                    )}
-                  </span>
+      <div className="grid gap-4 xl:grid-cols-[2fr_3fr]">
+        <Card>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="text-sm">Categorie</CardTitle>
+            <Button
+              size="sm"
+              onClick={() => setEditCat({ type: 'expense', color: '#3987e5', parentId: null })}
+            >
+              <Plus className="size-4" />
+              Nuova
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="max-h-[calc(100vh-280px)] space-y-3 overflow-y-auto pr-1">
+              {parents.map((p) => (
+                <div key={p.id}>
+                  <div className="flex items-center justify-between">
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
+                      style={{ backgroundColor: `${p.color}1f`, color: p.color }}
+                    >
+                      <span className="size-2 rounded-full" style={{ backgroundColor: p.color }} />
+                      {p.name}
+                      {p.type === 'income' && ' · entrate'}
+                      {p.type === 'transfer' && ' · trasferimenti'}
+                    </span>
+                    <span className="flex gap-1">
+                      <Button variant="ghost" size="icon-sm" onClick={() => setEditCat(p)}>
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      {!p.isSystem && (
+                        <Button variant="ghost" size="icon-sm" onClick={() => setDeleteCat(p)}>
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      )}
+                    </span>
+                  </div>
+                  <div className="ml-4 border-l pl-3">
+                    {categories
+                      .filter((c) => c.parentId === p.id)
+                      .map((c) => (
+                        <div key={c.id} className="flex items-center justify-between py-0.5">
+                          <span className="text-sm text-muted-foreground">{c.name}</span>
+                          <span className="flex gap-1">
+                            <Button variant="ghost" size="icon-sm" onClick={() => setEditCat(c)}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon-sm" onClick={() => setDeleteCat(c)}>
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </span>
+                        </div>
+                      ))}
+                  </div>
                 </div>
-                <div style={{ paddingLeft: 18 }}>
-                  {categories
-                    .filter((c) => c.parentId === p.id)
-                    .map((c) => (
-                      <div key={c.id} className="row small" style={{ justifyContent: 'space-between', padding: '2px 0' }}>
-                        <span className="muted">{c.name}</span>
-                        <span className="row" style={{ gap: 4 }}>
-                          <button className="btn small secondary" onClick={() => setEditCat(c)}>
-                            ✎
-                          </button>
-                          <button className="btn small secondary" onClick={() => setDeleteCat(c)}>
-                            🗑
-                          </button>
-                        </span>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
-        <div className="card">
-          <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
-            <h3 style={{ margin: 0 }}>Regole di categorizzazione ({rules.length})</h3>
-            <button className="btn small secondary" onClick={applyAll}>
+        <Card>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="text-sm">Regole di categorizzazione ({rules.length})</CardTitle>
+            <Button variant="outline" size="sm" onClick={applyAll}>
+              <Wand2 className="size-4" />
               Applica ai non categorizzati
-            </button>
-          </div>
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-3">
+              <Select
+                value={newRule.field}
+                onValueChange={(v) => setNewRule((r) => ({ ...r, field: v as RuleField }))}
+              >
+                <SelectTrigger size="sm" className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(FIELD_LABEL).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>
+                      {v}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={newRule.matchType}
+                onValueChange={(v) => setNewRule((r) => ({ ...r, matchType: v as RuleMatchType }))}
+              >
+                <SelectTrigger size="sm" className="w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(MATCH_LABEL).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>
+                      {v}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                placeholder="pattern (es. LIDL)"
+                className="h-8 w-36"
+                value={newRule.pattern}
+                onChange={(e) => {
+                  setNewRule((r) => ({ ...r, pattern: e.target.value }))
+                  setTestCount(null)
+                }}
+              />
+              <CategorySelect
+                categories={categories}
+                value={newRule.categoryId}
+                onChange={(id) => setNewRule((r) => ({ ...r, categoryId: id }))}
+                emptyLabel="Categoria"
+              />
+              <Button variant="outline" size="sm" onClick={testNewRule}>
+                <FlaskConical className="size-4" />
+                Test
+              </Button>
+              {testCount != null && (
+                <span className="text-xs text-muted-foreground">{testCount} movimenti corrispondono</span>
+              )}
+              <Button
+                size="sm"
+                onClick={createRule}
+                disabled={!newRule.pattern.trim() || newRule.categoryId == null}
+              >
+                <Plus className="size-4" />
+                Crea
+              </Button>
+            </div>
 
-          <div className="row wrap mb" style={{ background: 'var(--bg)', padding: 10, borderRadius: 8 }}>
-            <select
-              value={newRule.field}
-              onChange={(e) => setNewRule((r) => ({ ...r, field: e.target.value as RuleField }))}
-            >
-              {Object.entries(FIELD_LABEL).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </select>
-            <select
-              value={newRule.matchType}
-              onChange={(e) => setNewRule((r) => ({ ...r, matchType: e.target.value as RuleMatchType }))}
-            >
-              {Object.entries(MATCH_LABEL).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </select>
-            <input
-              placeholder="pattern (es. LIDL)"
-              value={newRule.pattern}
-              onChange={(e) => {
-                setNewRule((r) => ({ ...r, pattern: e.target.value }))
-                setTestCount(null)
-              }}
-              style={{ width: 140 }}
-            />
-            <span>→</span>
-            <CategorySelect
-              categories={categories}
-              value={newRule.categoryId}
-              onChange={(id) => setNewRule((r) => ({ ...r, categoryId: id }))}
-              emptyLabel="— categoria —"
-            />
-            <button className="btn small secondary" onClick={testNewRule}>
-              Test
-            </button>
-            {testCount != null && (
-              <span className="small muted">→ {testCount} movimenti corrispondono</span>
-            )}
-            <button className="btn small" onClick={createRule} disabled={!newRule.pattern.trim() || newRule.categoryId == null}>
-              Crea regola
-            </button>
-          </div>
-
-          <div className="table-wrap" style={{ maxHeight: 'calc(100vh - 380px)' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Attiva</th>
-                  <th>Campo</th>
-                  <th>Match</th>
-                  <th>Pattern</th>
-                  <th>Categoria</th>
-                  <th className="num">Priorità</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rules.map((r) => (
-                  <tr key={r.id} style={{ opacity: r.active ? 1 : 0.5 }}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={r.active}
-                        onChange={(e) => api.ruleUpdate(r.id, { active: e.target.checked }).then(loadRules)}
-                      />
-                    </td>
-                    <td className="small">{FIELD_LABEL[r.field]}</td>
-                    <td className="small muted">{MATCH_LABEL[r.matchType]}</td>
-                    <td className="mono small">{r.pattern}</td>
-                    <td className="small">{catName(r.categoryId)}</td>
-                    <td className="num small">{r.priority}</td>
-                    <td>
-                      <button className="btn small secondary" onClick={() => api.ruleDelete(r.id).then(loadRules)}>
-                        🗑
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+            <div className="max-h-[calc(100vh-400px)] overflow-auto rounded-md border">
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-card">
+                  <TableRow>
+                    <TableHead>Attiva</TableHead>
+                    <TableHead>Campo</TableHead>
+                    <TableHead>Match</TableHead>
+                    <TableHead>Pattern</TableHead>
+                    <TableHead>Categoria</TableHead>
+                    <TableHead className="text-right">Priorità</TableHead>
+                    <TableHead className="w-10" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rules.map((r) => (
+                    <TableRow key={r.id} className={r.active ? '' : 'opacity-50'}>
+                      <TableCell>
+                        <Switch
+                          checked={r.active}
+                          onCheckedChange={(v) => api.ruleUpdate(r.id, { active: v }).then(loadRules)}
+                        />
+                      </TableCell>
+                      <TableCell className="text-sm">{FIELD_LABEL[r.field]}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {MATCH_LABEL[r.matchType]}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{r.pattern}</TableCell>
+                      <TableCell className="text-sm">{catName(r.categoryId)}</TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">{r.priority}</TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => api.ruleDelete(r.id).then(loadRules)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {tags.length > 0 && (
-        <div className="card mt">
-          <h3>Tag</h3>
-          <div className="row wrap">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Tag</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
             {tags.map((t) => (
-              <span key={t.id} className="badge" style={{ background: `${t.color}22`, color: t.color }}>
-                {t.name}{' '}
-                <span
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => api.tagDelete(t.id).then(onChanged)}
-                  title="Elimina tag"
-                >
-                  ✕
-                </span>
-              </span>
+              <button
+                key={t.id}
+                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
+                style={{ backgroundColor: `${t.color}1f`, color: t.color }}
+                title="Elimina tag"
+                onClick={() => api.tagDelete(t.id).then(onChanged)}
+              >
+                {t.name}
+                <X className="size-3" />
+              </button>
             ))}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {editCat && (
-        <Modal title={editCat.id ? 'Modifica categoria' : 'Nuova categoria'} onClose={() => setEditCat(null)}>
-          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <label className="field">
-              Nome
-              <input value={editCat.name ?? ''} onChange={(e) => setEditCat({ ...editCat, name: e.target.value })} />
-            </label>
-            <label className="field">
-              Colore
-              <input
+        <ModalShell
+          title={editCat.id ? 'Modifica categoria' : 'Nuova categoria'}
+          onClose={() => setEditCat(null)}
+        >
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Nome</Label>
+              <Input
+                value={editCat.name ?? ''}
+                onChange={(e) => setEditCat({ ...editCat, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Colore</Label>
+              <Input
                 type="color"
-                value={editCat.color ?? '#8884d8'}
+                className="h-9 w-20 p-1"
+                value={editCat.color ?? '#3987e5'}
                 onChange={(e) => setEditCat({ ...editCat, color: e.target.value })}
               />
-            </label>
-            <label className="field">
-              Tipo
-              <select
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipo</Label>
+              <Select
                 value={editCat.type ?? 'expense'}
-                onChange={(e) => setEditCat({ ...editCat, type: e.target.value as Category['type'] })}
+                onValueChange={(v) => setEditCat({ ...editCat, type: v as Category['type'] })}
               >
-                <option value="expense">Spesa</option>
-                <option value="income">Entrata</option>
-                <option value="transfer">Trasferimento</option>
-              </select>
-            </label>
-            <label className="field">
-              Macro-categoria (vuoto = è una macro)
-              <select
-                value={editCat.parentId ?? ''}
-                onChange={(e) =>
-                  setEditCat({ ...editCat, parentId: e.target.value === '' ? null : Number(e.target.value) })
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="expense">Spesa</SelectItem>
+                  <SelectItem value="income">Entrata</SelectItem>
+                  <SelectItem value="transfer">Trasferimento</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Macro-categoria (vuoto = è una macro)</Label>
+              <Select
+                value={editCat.parentId != null ? String(editCat.parentId) : '__none__'}
+                onValueChange={(v) =>
+                  setEditCat({ ...editCat, parentId: v === '__none__' ? null : Number(v) })
                 }
               >
-                <option value="">— nessuna —</option>
-                {parents
-                  .filter((p) => p.id !== editCat.id)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Nessuna</SelectItem>
+                  {parents
+                    .filter((p) => p.id !== editCat.id)
+                    .map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="actions">
-            <button className="btn secondary" onClick={() => setEditCat(null)}>
+          <div className="flex justify-end gap-2 pt-3">
+            <Button variant="outline" onClick={() => setEditCat(null)}>
               Annulla
-            </button>
-            <button className="btn" onClick={saveCat} disabled={!editCat.name}>
+            </Button>
+            <Button onClick={saveCat} disabled={!editCat.name}>
               Salva
-            </button>
+            </Button>
           </div>
-        </Modal>
+        </ModalShell>
       )}
 
       {deleteCat && (
-        <Modal title={`Elimina «${deleteCat.name}»`} onClose={() => setDeleteCat(null)}>
-          <p>I movimenti di questa categoria verranno riassegnati a:</p>
+        <ModalShell
+          title={`Elimina "${deleteCat.name}"`}
+          description="I movimenti di questa categoria verranno riassegnati alla categoria scelta."
+          onClose={() => setDeleteCat(null)}
+        >
           <CategorySelect
             categories={categories.filter((c) => c.id !== deleteCat.id)}
             value={reassignTo}
             onChange={setReassignTo}
-            emptyLabel="— nessuna categoria —"
+            emptyLabel="Nessuna categoria"
+            className="w-full"
           />
-          <div className="actions">
-            <button className="btn secondary" onClick={() => setDeleteCat(null)}>
+          <div className="flex justify-end gap-2 pt-3">
+            <Button variant="outline" onClick={() => setDeleteCat(null)}>
               Annulla
-            </button>
-            <button className="btn danger" onClick={confirmDeleteCat}>
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteCat}>
+              <Trash2 className="size-4" />
               Elimina categoria
-            </button>
+            </Button>
           </div>
-        </Modal>
+        </ModalShell>
       )}
     </div>
   )

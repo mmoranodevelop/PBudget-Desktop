@@ -102,7 +102,7 @@ export function stage(token: string, mapping: ColumnMapping, headerRow: number):
   }
 
   const rules = loadActiveRules()
-  const seenInFile = new Map<string, number>() // hash → conteggio già visto nel file stesso
+  const seenInFile = new Map<string, number>() // hash -> conteggio già visto nel file stesso
   const staged: StagedRow[] = []
   let dup = 0
   let probable = 0

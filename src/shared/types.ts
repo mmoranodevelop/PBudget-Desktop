@@ -231,6 +231,36 @@ export interface ForecastResult {
   yearEndScenarioBalance: number
 }
 
+// ---------- Report ----------
+
+export interface YearReport {
+  year: number
+  income: number[] // 12 mesi
+  expense: number[] // 12 mesi
+  categories: {
+    categoryId: number
+    name: string
+    color: string
+    months: number[] // 12 mesi, spese in valore assoluto (aggregato a livello macro)
+    total: number
+  }[]
+}
+
+// ---------- Google Drive ----------
+
+export interface GDriveStatus {
+  configured: boolean
+  connected: boolean
+}
+
+export interface GDriveFile {
+  id: string
+  name: string
+  size: number
+  modifiedTime: string
+  mimeType: string
+}
+
 // ---------- Settings ----------
 
 export interface DataInfo {
@@ -285,6 +315,16 @@ export interface BudgetApi {
   budgetSet(year: number, categoryId: number, month: number | null, amount: number): Promise<void>
   budgetVsActual(year: number, month: number): Promise<BudgetVsActual[]>
   budgetCopyFromActual(year: number, sourceYear: number): Promise<number>
+  // export / report
+  txExport(filter: TransactionFilter, format: 'csv' | 'xlsx'): Promise<string | null>
+  reportYear(year: number): Promise<YearReport>
+  // google drive
+  gdriveStatus(): Promise<GDriveStatus>
+  gdriveConfigure(clientId: string, clientSecret: string): Promise<void>
+  gdriveConnect(): Promise<GDriveStatus>
+  gdriveDisconnect(): Promise<void>
+  gdriveListFiles(): Promise<GDriveFile[]>
+  gdriveImport(fileId: string, name: string): Promise<ImportAnalysis>
   // dashboard / forecast
   dashboard(year: number): Promise<DashboardStats>
   forecast(year: number, adjustments: ScenarioAdjustment[]): Promise<ForecastResult>

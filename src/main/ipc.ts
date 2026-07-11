@@ -1,14 +1,18 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { readFileSync, statSync, existsSync, readdirSync } from 'fs'
 import { basename, join } from 'path'
+import * as XLSX from 'xlsx'
 import { getDb, getDbPath, getBackupDir, backupNow } from './db'
 import { analyzeBuffer, stage, commit } from './importer/service'
 import { applyRulesToExisting, testRule } from './rules'
 import { dashboardStats, budgetGet, budgetSet, budgetVsActual, budgetCopyFromActual } from './stats'
 import { forecast } from './forecast'
+import {
+  gdriveStatus, gdriveConfigure, gdriveConnect, gdriveDisconnect, gdriveListFiles, gdriveDownload
+} from './gdrive'
 import type {
   Category, ColumnMapping, Rule, ScenarioAdjustment, Tag, Transaction, TransactionFilter,
-  TransactionListResult
+  TransactionListResult, YearReport
 } from '@shared/types'
 
 function handle(channel: string, fn: (...args: never[]) => unknown): void {
@@ -367,6 +371,110 @@ export function registerIpcHandlers(): void {
   handle('budget:set', budgetSet)
   handle('budget:vsActual', budgetVsActual)
   handle('budget:copyFromActual', budgetCopyFromActual)
+
+  // ---------- Export ----------
+  handle('tx:export', async (filter: TransactionFilter, format: 'csv' | 'xlsx') => {
+    const db = getDb()
+    const { where, params } = buildTxWhere(filter)
+    const rows = db
+      .prepare(
+        `SELECT t.date_reg, t.date_val, t.causale, t.description, t.merchant, t.amount,
+                c.name AS category, t.notes
+         FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
+         WHERE ${where} ORDER BY t.date_reg DESC`
+      )
+      .all(...params) as unknown as Record<string, unknown>[]
+
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const res = await dialog.showSaveDialog(win, {
+      title: 'Esporta movimenti',
+      defaultPath: `movimenti-${new Date().toISOString().slice(0, 10)}.${format}`,
+      filters: format === 'csv' ? [{ name: 'CSV', extensions: ['csv'] }] : [{ name: 'Excel', extensions: ['xlsx'] }]
+    })
+    if (res.canceled || !res.filePath) return null
+
+    const header = ['Data', 'Data valuta', 'Causale', 'Descrizione', 'Esercente', 'Importo', 'Categoria', 'Note']
+    const data = rows.map((r) => [
+      r.date_reg, r.date_val, r.causale, r.description, r.merchant, r.amount, r.category, r.notes
+    ])
+    const ws = XLSX.utils.aoa_to_sheet([header, ...data])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Movimenti')
+    XLSX.writeFile(wb, res.filePath, { bookType: format === 'csv' ? 'csv' : 'xlsx' })
+    return res.filePath
+  })
+
+  // ---------- Report ----------
+  handle('report:year', (year: number): YearReport => {
+    const db = getDb()
+    const income = Array(12).fill(0) as number[]
+    const expense = Array(12).fill(0) as number[]
+    const totals = db
+      .prepare(
+        `SELECT CAST(strftime('%m', t.date_reg) AS INTEGER) AS month,
+                SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS income,
+                SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS expense
+         FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
+         WHERE t.status = 'active' AND (t.category_id IS NULL OR c.type != 'transfer')
+           AND strftime('%Y', t.date_reg) = ?
+         GROUP BY month`
+      )
+      .all(String(year)) as unknown as { month: number; income: number; expense: number }[]
+    for (const t of totals) {
+      income[t.month - 1] = Math.round(t.income * 100) / 100
+      expense[t.month - 1] = Math.round(t.expense * 100) / 100
+    }
+
+    const catRows = db
+      .prepare(
+        `SELECT COALESCE(p.id, c.id) AS categoryId, COALESCE(p.name, c.name) AS name,
+                COALESCE(p.color, c.color) AS color,
+                CAST(strftime('%m', t.date_reg) AS INTEGER) AS month, SUM(-t.amount) AS spent
+         FROM transactions t
+         JOIN categories c ON c.id = t.category_id
+         LEFT JOIN categories p ON p.id = c.parent_id
+         WHERE t.status = 'active' AND t.amount < 0 AND c.type = 'expense'
+           AND strftime('%Y', t.date_reg) = ?
+         GROUP BY COALESCE(p.id, c.id), month`
+      )
+      .all(String(year)) as unknown as {
+      categoryId: number
+      name: string
+      color: string
+      month: number
+      spent: number
+    }[]
+
+    const byCat = new Map<number, YearReport['categories'][number]>()
+    for (const r of catRows) {
+      let entry = byCat.get(r.categoryId)
+      if (!entry) {
+        entry = { categoryId: r.categoryId, name: r.name, color: r.color, months: Array(12).fill(0), total: 0 }
+        byCat.set(r.categoryId, entry)
+      }
+      const v = Math.round(r.spent * 100) / 100
+      entry.months[r.month - 1] += v
+      entry.total = Math.round((entry.total + v) * 100) / 100
+    }
+
+    return {
+      year,
+      income,
+      expense,
+      categories: [...byCat.values()].sort((a, b) => b.total - a.total)
+    }
+  })
+
+  // ---------- Google Drive ----------
+  handle('gdrive:status', gdriveStatus)
+  handle('gdrive:configure', gdriveConfigure)
+  handle('gdrive:connect', gdriveConnect)
+  handle('gdrive:disconnect', gdriveDisconnect)
+  handle('gdrive:listFiles', gdriveListFiles)
+  handle('gdrive:import', async (fileId: string, name: string) => {
+    const buf = await gdriveDownload(fileId)
+    return analyzeBuffer(buf, name, 'gdrive')
+  })
 
   // ---------- Dashboard / Forecast ----------
   handle('dashboard:stats', dashboardStats)

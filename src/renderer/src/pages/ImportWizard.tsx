@@ -1,7 +1,23 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import {
+  AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Info, Loader2, ListChecks
+} from 'lucide-react'
 import type { Category, ColumnMapping, CommitResult, ImportAnalysis, StageResult } from '@shared/types'
 import { api, fmtDate, fmtEur } from '../api'
 import { Amount, CatBadge } from '../components'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from '@/components/ui/table'
 
 type Step = 'mapping' | 'staging' | 'done'
 
@@ -10,16 +26,36 @@ const FIELD_LABELS: { key: keyof ColumnMapping; label: string; required?: boolea
   { key: 'dateVal', label: 'Data valuta' },
   { key: 'causale', label: 'Causale' },
   { key: 'description', label: 'Descrizione', required: true },
-  { key: 'amount', label: 'Importo (unica colonna ±)' },
+  { key: 'amount', label: 'Importo (unica colonna)' },
   { key: 'amountIn', label: 'Entrate (colonna separata)' },
   { key: 'amountOut', label: 'Uscite (colonna separata)' }
 ]
 
-const STATUS_LABEL: Record<string, string> = {
-  new: 'Nuovo',
-  duplicate: 'Duplicato',
-  probable_duplicate: 'Possibile duplicato',
-  error: 'Errore'
+const NONE = '__none__'
+
+function StatusBadge({ status }: { status: string }): JSX.Element {
+  switch (status) {
+    case 'new':
+      return (
+        <Badge variant="outline" className="border-chart-income/40 text-chart-income">
+          Nuovo
+        </Badge>
+      )
+    case 'duplicate':
+      return (
+        <Badge variant="outline" className="border-chart-expense/40 text-chart-expense">
+          Duplicato
+        </Badge>
+      )
+    case 'probable_duplicate':
+      return (
+        <Badge variant="outline" className="border-chart-scenario/40 text-chart-scenario">
+          Possibile duplicato
+        </Badge>
+      )
+    default:
+      return <Badge variant="outline">Errore</Badge>
+  }
 }
 
 export default function ImportWizard({
@@ -83,7 +119,6 @@ export default function ImportWizard({
   const setField = (key: keyof ColumnMapping, col: number | null): void => {
     setMapping((m) => {
       const next = { ...m, [key]: col }
-      // una colonna può essere assegnata a un solo campo
       if (col != null) {
         for (const f of FIELD_LABELS) {
           if (f.key !== key && next[f.key] === col) next[f.key] = null
@@ -102,97 +137,137 @@ export default function ImportWizard({
   }, [staged, dupFilter])
 
   return (
-    <div>
-      <h1 className="page-title">Import: {analysis.fileName}</h1>
-      <p className="page-sub">
-        {step === 'mapping' && 'Passo 1 di 2 — Verifica il mapping delle colonne'}
-        {step === 'staging' && 'Passo 2 di 2 — Controlla i movimenti e i duplicati'}
-        {step === 'done' && 'Import completato'}
-      </p>
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Import: {analysis.fileName}</h1>
+        <p className="text-sm text-muted-foreground">
+          {step === 'mapping' && 'Passo 1 di 2 — Verifica il mapping delle colonne'}
+          {step === 'staging' && 'Passo 2 di 2 — Controlla i movimenti e i duplicati'}
+          {step === 'done' && 'Import completato'}
+        </p>
+      </div>
 
-      {error && <div className="banner error">{error}</div>}
+      {error && (
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       {step === 'mapping' && (
         <>
           {analysis.matchedProfile && (
-            <div className="banner success">
-              ✓ Formato riconosciuto: profilo «{analysis.matchedProfile.name}» applicato automaticamente.
-            </div>
+            <Alert className="border-chart-income/40 [&>svg]:text-chart-income">
+              <CheckCircle2 />
+              <AlertDescription>
+                Formato riconosciuto: profilo "{analysis.matchedProfile.name}" applicato automaticamente.
+              </AlertDescription>
+            </Alert>
           )}
           {analysis.preamble.length > 0 && (
-            <div className="banner info small">
-              Intestazione file: {analysis.preamble.join(' — ')}
-            </div>
+            <Alert>
+              <Info />
+              <AlertDescription>{analysis.preamble.join(' — ')}</AlertDescription>
+            </Alert>
           )}
 
-          <div className="card mb">
-            <h3>Mapping colonne → campi ({analysis.totalRows} righe rilevate)</h3>
-            <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-              {FIELD_LABELS.map((f) => (
-                <label key={f.key} className="field">
-                  {f.label} {f.required && <span className="warn">*</span>}
-                  <select
-                    value={mapping[f.key] ?? ''}
-                    onChange={(e) => setField(f.key, e.target.value === '' ? null : Number(e.target.value))}
-                  >
-                    <option value="">— non presente —</option>
-                    {analysis.columns.map((c, i) => (
-                      <option key={i} value={i}>
-                        {c || `Colonna ${i + 1}`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-            </div>
-            {!mappingValid && (
-              <p className="small warn mt">
-                Servono almeno: Data registrazione, Descrizione e una colonna Importo (o Entrate/Uscite).
-              </p>
-            )}
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">
+                Mapping colonne ({analysis.totalRows} righe rilevate)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                {FIELD_LABELS.map((f) => (
+                  <div key={f.key} className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">
+                      {f.label}
+                      {f.required && <span className="text-chart-expense"> *</span>}
+                    </Label>
+                    <Select
+                      value={mapping[f.key] != null ? String(mapping[f.key]) : NONE}
+                      onValueChange={(v) => setField(f.key, v === NONE ? null : Number(v))}
+                    >
+                      <SelectTrigger size="sm" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>
+                          <span className="text-muted-foreground">non presente</span>
+                        </SelectItem>
+                        {analysis.columns.map((c, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {c || `Colonna ${i + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+              {!mappingValid && (
+                <p className="mt-3 text-xs text-chart-scenario">
+                  Servono almeno: Data registrazione, Descrizione e una colonna Importo (o Entrate/Uscite).
+                </p>
+              )}
+            </CardContent>
+          </Card>
 
-          <div className="card mb">
-            <h3>Anteprima dati</h3>
-            <div className="table-wrap" style={{ maxHeight: 260 }}>
-              <table>
-                <thead>
-                  <tr>
-                    {analysis.columns.map((c, i) => (
-                      <th key={i}>{c || `Col. ${i + 1}`}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {analysis.sampleRows.map((r, i) => (
-                    <tr key={i}>
-                      {analysis.columns.map((_, j) => (
-                        <td key={j} className="desc-cell" style={{ maxWidth: 260 }}>
-                          {r[j] ?? ''}
-                        </td>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Anteprima dati</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-64 overflow-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {analysis.columns.map((c, i) => (
+                        <TableHead key={i}>{c || `Col. ${i + 1}`}</TableHead>
                       ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {analysis.sampleRows.map((r, i) => (
+                      <TableRow key={i}>
+                        {analysis.columns.map((_, j) => (
+                          <TableCell key={j} className="max-w-64 truncate">
+                            {r[j] ?? ''}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
 
-          <div className="row">
-            <label className="row small">
-              <input type="checkbox" checked={saveProfile} onChange={(e) => setSaveProfile(e.target.checked)} />
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={saveProfile}
+                onCheckedChange={(v) => setSaveProfile(v === true)}
+              />
               Salva come profilo per import futuri
             </label>
             {saveProfile && (
-              <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Nome profilo" />
+              <Input
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                placeholder="Nome profilo"
+                className="h-8 w-56"
+              />
             )}
-            <div className="spacer" style={{ flex: 1 }} />
-            <button className="btn secondary" onClick={onCancel}>
+            <div className="flex-1" />
+            <Button variant="outline" onClick={onCancel}>
               Annulla
-            </button>
-            <button className="btn" disabled={!mappingValid || busy} onClick={doStage}>
-              {busy ? 'Analisi…' : 'Continua →'}
-            </button>
+            </Button>
+            <Button disabled={!mappingValid || busy} onClick={doStage}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
+              Continua
+            </Button>
           </div>
         </>
       )}
@@ -200,131 +275,152 @@ export default function ImportWizard({
       {step === 'staging' && staged && (
         <>
           {staged.stats.duplicates + staged.stats.probableDuplicates > 0 ? (
-            <div className="banner warn">
-              ⚠️ Rilevati <b>{staged.stats.duplicates} duplicati</b>
-              {staged.stats.probableDuplicates > 0 && (
-                <> e <b>{staged.stats.probableDuplicates} possibili duplicati</b></>
-              )}
-              {staged.stats.overlapFrom && (
-                <>
-                  {' '}(periodo sovrapposto: {fmtDate(staged.stats.overlapFrom)} –{' '}
-                  {fmtDate(staged.stats.overlapTo)})
-                </>
-              )}
-              . I duplicati sono esclusi automaticamente: puoi reincluderli riga per riga.
-            </div>
+            <Alert className="border-chart-scenario/40 [&>svg]:text-chart-scenario">
+              <AlertTriangle />
+              <AlertTitle>
+                Rilevati {staged.stats.duplicates} duplicati
+                {staged.stats.probableDuplicates > 0 && ` e ${staged.stats.probableDuplicates} possibili duplicati`}
+              </AlertTitle>
+              <AlertDescription>
+                {staged.stats.overlapFrom && (
+                  <>
+                    Periodo sovrapposto: {fmtDate(staged.stats.overlapFrom)} – {fmtDate(staged.stats.overlapTo)}.{' '}
+                  </>
+                )}
+                I duplicati sono esclusi automaticamente: puoi reincluderli riga per riga.
+              </AlertDescription>
+            </Alert>
           ) : (
-            <div className="banner success">✓ Nessun duplicato rilevato.</div>
+            <Alert className="border-chart-income/40 [&>svg]:text-chart-income">
+              <CheckCircle2 />
+              <AlertDescription>Nessun duplicato rilevato.</AlertDescription>
+            </Alert>
           )}
 
-          <div className="toolbar">
-            <span className="small muted">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <span>
               {staged.stats.new} nuovi · {staged.stats.duplicates} duplicati ·{' '}
               {staged.stats.probableDuplicates} probabili · {staged.stats.errors} errori —{' '}
-              <b>{includes.size} da importare</b>
+              <span className="font-medium text-foreground">{includes.size} da importare</span>
             </span>
-            <div className="spacer" />
-            <select value={dupFilter} onChange={(e) => setDupFilter(e.target.value as 'all' | 'duplicates')}>
-              <option value="all">Tutte le righe</option>
-              <option value="duplicates">Solo duplicati</option>
-            </select>
-            <button
-              className="btn small secondary"
-              onClick={() => setIncludes(new Set(staged.rows.filter((r) => r.status !== 'error').map((r) => r.index)))}
+            <div className="flex-1" />
+            <Select value={dupFilter} onValueChange={(v) => setDupFilter(v as 'all' | 'duplicates')}>
+              <SelectTrigger size="sm" className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tutte le righe</SelectItem>
+                <SelectItem value="duplicates">Solo duplicati</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setIncludes(new Set(staged.rows.filter((r) => r.status !== 'error').map((r) => r.index)))
+              }
             >
               Includi tutto
-            </button>
-            <button
-              className="btn small secondary"
-              onClick={() => setIncludes(new Set(staged.rows.filter((r) => r.status === 'new').map((r) => r.index)))}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setIncludes(new Set(staged.rows.filter((r) => r.status === 'new').map((r) => r.index)))
+              }
             >
               Solo nuovi
-            </button>
+            </Button>
           </div>
 
-          <div className="table-wrap mb" style={{ maxHeight: 'calc(100vh - 360px)' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>Stato</th>
-                  <th>Data</th>
-                  <th>Descrizione</th>
-                  <th className="num">Importo</th>
-                  <th>Categoria proposta</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="max-h-[calc(100vh-380px)] overflow-auto rounded-md border">
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-card">
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead>Stato</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Descrizione</TableHead>
+                  <TableHead className="text-right">Importo</TableHead>
+                  <TableHead>Categoria proposta</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {visibleRows.map((r) => (
-                  <tr key={r.index}>
-                    <td>
-                      <input
-                        type="checkbox"
+                  <TableRow key={r.index}>
+                    <TableCell>
+                      <Checkbox
                         disabled={r.status === 'error'}
                         checked={includes.has(r.index)}
-                        onChange={(e) => {
+                        onCheckedChange={(v) => {
                           const next = new Set(includes)
-                          if (e.target.checked) next.add(r.index)
+                          if (v === true) next.add(r.index)
                           else next.delete(r.index)
                           setIncludes(next)
                         }}
                       />
-                    </td>
-                    <td>
-                      <span className={`badge status-${r.status}`}>{STATUS_LABEL[r.status]}</span>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={r.status} />
                       {r.existing && (
-                        <div className="small muted" style={{ marginTop: 3 }}>
+                        <div className="mt-1 text-xs text-muted-foreground">
                           già presente: {fmtDate(r.existing.dateReg)} · {fmtEur(r.existing.amount)}
                         </div>
                       )}
-                      {r.error && <div className="small muted">{r.error}</div>}
-                    </td>
-                    <td className="mono">{fmtDate(r.dateReg)}</td>
-                    <td className="desc-cell" title={r.description}>
+                      {r.error && <div className="mt-1 text-xs text-muted-foreground">{r.error}</div>}
+                    </TableCell>
+                    <TableCell className="tabular-nums">{fmtDate(r.dateReg)}</TableCell>
+                    <TableCell className="max-w-96 truncate" title={r.description}>
                       {r.description}
-                    </td>
-                    <td className="num">
+                    </TableCell>
+                    <TableCell className="text-right">
                       <Amount value={r.amount} />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <CatBadge category={r.suggestedCategoryId} categories={categories} />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
 
-          <div className="row">
-            <button className="btn secondary" onClick={() => setStep('mapping')}>
-              ← Mapping
-            </button>
-            <div className="spacer" style={{ flex: 1 }} />
-            <button className="btn secondary" onClick={onCancel}>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setStep('mapping')}>
+              <ArrowLeft className="size-4" />
+              Mapping
+            </Button>
+            <div className="flex-1" />
+            <Button variant="outline" onClick={onCancel}>
               Annulla
-            </button>
-            <button className="btn" disabled={includes.size === 0 || busy} onClick={doCommit}>
-              {busy ? 'Import in corso…' : `Importa ${includes.size} movimenti`}
-            </button>
+            </Button>
+            <Button disabled={includes.size === 0 || busy} onClick={doCommit}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <ListChecks className="size-4" />}
+              Importa {includes.size} movimenti
+            </Button>
           </div>
         </>
       )}
 
       {step === 'done' && result && (
-        <div className="card" style={{ maxWidth: 520 }}>
-          <h3>✓ Import completato</h3>
-          <p>
-            <b>{result.imported}</b> movimenti importati
-            {result.skippedDuplicates > 0 && <>, {result.skippedDuplicates} esclusi (duplicati)</>}
-            .<br />
-            <b>{result.categorized}</b> categorizzati automaticamente dalle regole.
-          </p>
-          <div className="row mt">
-            <button className="btn" onClick={onDone}>
-              Vai ai movimenti
-            </button>
-          </div>
-        </div>
+        <Card className="max-w-lg">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CheckCircle2 className="size-5 text-chart-income" />
+              Import completato
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm">
+              <span className="font-semibold">{result.imported}</span> movimenti importati
+              {result.skippedDuplicates > 0 && <>, {result.skippedDuplicates} esclusi (duplicati)</>}.
+              <br />
+              <span className="font-semibold">{result.categorized}</span> categorizzati automaticamente
+              dalle regole.
+            </p>
+            <Button onClick={onDone}>Vai ai movimenti</Button>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

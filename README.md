@@ -7,7 +7,8 @@ scenari what-if. Piano di sviluppo completo in [PIANO_SVILUPPO.md](PIANO_SVILUPP
 ## Stack
 
 - **Electron 37 + TypeScript** (main process con logica dati, renderer isolato via IPC tipizzato)
-- **React 18 + Recharts** per la UI
+- **React 18 + shadcn/ui (new-york, base neutral) + Tailwind CSS v4 + lucide-react** per la UI
+- **Recharts** per i grafici (palette validata per accessibilità/CVD su tema scuro)
 - **SQLite** via `node:sqlite` (incluso nel Node di Electron, nessuna dipendenza nativa da compilare)
 - **SheetJS + PapaParse** per il parsing di xls/xlsx/csv
 - **electron-vite** per build e dev server, **Vitest** per i test
@@ -53,6 +54,11 @@ Tutti i dati restano in locale, **fuori da OneDrive** per evitare corruzioni da 
   confronto con lo speso e alert di sforamento in dashboard.
 - **Proiezioni**: rilevamento automatico delle ricorrenze (stipendio, abbonamenti, SEPA), proiezione
   del saldo a fine anno e scenari what-if confrontabili col caso base.
+- **Report**: confronto anno su anno di entrate/uscite mensili e delle spese per categoria.
+- **Export**: la vista filtrata dei movimenti si esporta in CSV o XLSX.
+- **Google Drive**: import diretto degli estratti conto dal proprio Drive (OAuth 2.0 PKCE nel browser
+  di sistema, scope in sola lettura, token cifrati con `safeStorage`). Richiede un Client ID Google
+  "Applicazione desktop" configurabile nelle Impostazioni.
 
 ## Struttura
 
