@@ -1,7 +1,22 @@
 # Piano di Sviluppo — Personal Budgeting App (Desktop Windows/macOS)
 
-> Versione 1.0 — 11/07/2026
+> Versione 1.1 — 11/07/2026
 > Dati di riferimento: `data/Elenco_Movimenti.xls` (export UniCredit, 287 movimenti gen–lug 2026)
+
+---
+
+## Stato di avanzamento
+
+Le **Fasi 0–5 sono sostanzialmente complete** e l'app è usabile end-to-end
+(import → dedup → categorizzazione → dashboard → budget → proiezioni → report → export → Google Drive).
+Restano rifiniture della tabella movimenti, alcune feature avanzate e l'intera **Fase 6**
+(packaging firmato, CI, test e2e). Il dettaglio voce per voce è in **[CHECKLIST.md](CHECKLIST.md)**.
+
+**Deviazioni consapevoli dallo stack pianificato** (motivate in CHECKLIST.md):
+`node:sqlite` al posto di better-sqlite3 + Drizzle (niente dipendenze native, ma **niente migrazioni versionate** — da introdurre prima della distribuzione); tabella custom su
+shadcn `Table` al posto di TanStack Table; stato React locale al posto di Zustand + TanStack Query;
+Recharts al posto di ECharts. Le sezioni seguenti restano il riferimento di design; dove il
+realizzato diverge è annotato inline.
 
 ---
 
@@ -30,7 +45,7 @@
 - **Tabelle:** TanStack Table (sorting, filtering, grouping, virtualizzazione)
 - **Grafici:** Apache ECharts (o Recharts se bastano grafici semplici)
 - **Stato:** Zustand + TanStack Query verso IPC
-- **DB:** SQLite via better-sqlite3 + Drizzle ORM (migrazioni tipizzate)
+- **DB:** SQLite via better-sqlite3 + Drizzle ORM (migrazioni tipizzate) — *realizzato con `node:sqlite`; migrazioni versionate ancora da introdurre*
 - **Parsing:** SheetJS (xls/xlsx), PapaParse (csv)
 - **Google Drive:** `googleapis` + OAuth 2.0 PKCE, token cifrati con `safeStorage` di Electron
 - **Test:** Vitest (unit), Playwright (e2e Electron)
@@ -45,7 +60,7 @@
 - **Archivio import:** ogni file importato viene copiato in `userData/imports/<timestamp>_<nome>` con hash SHA-256 registrato in DB → audit trail, possibilità di re-import/rollback.
 - **Transazioni atomiche** su ogni import (o tutto o niente).
 - **Backup automatico:** snapshot del DB a rotazione (ultimi N) a ogni avvio/chiusura + export/import manuale del backup dalla pagina Impostazioni.
-- **Migrazioni schema** versionate (Drizzle) per aggiornamenti dell'app senza perdita dati.
+- **Migrazioni schema** versionate (Drizzle) per aggiornamenti dell'app senza perdita dati. — *⚠️ non ancora implementate: schema creato con `CREATE TABLE IF NOT EXISTS`, da sostituire con migrazioni versionate prima della distribuzione.*
 
 ---
 
