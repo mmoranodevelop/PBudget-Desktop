@@ -131,6 +131,24 @@ export function suggestMapping(headerRow: RawRow, dataRows: RawRow[]): ColumnMap
 
 // ---------- Normalizzazione valori ----------
 
+// Rileva se una colonna di date slash/trattino usa giorno-prima (dmy) o mese-prima (mdy).
+// Un componente > 12 disambigua; senza indizi si resta sul default europeo dmy.
+// Le date yyyy-mm-dd non richiedono rilevamento: parseDateValue le gestisce a prescindere.
+export function detectDateFormat(values: RawCell[]): DateFormat {
+  let dmy = 0
+  let mdy = 0
+  for (const v of values) {
+    if (typeof v !== 'string') continue
+    const m = v.trim().match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.]\d{2,4}/)
+    if (!m) continue
+    const first = Number(m[1])
+    const second = Number(m[2])
+    if (first > 12 && second <= 12) dmy++
+    else if (second > 12 && first <= 12) mdy++
+  }
+  return mdy > dmy ? 'mdy' : 'dmy'
+}
+
 export function parseDateValue(v: RawCell, format: DateFormat = 'auto'): string | null {
   if (v == null || v === '') return null
   if (v instanceof Date) {
@@ -285,10 +303,24 @@ export function normalizeRows(
 ): { rows: NormalizedRow[]; errors: RowError[] } {
   const out: NormalizedRow[] = []
   const errors: RowError[] = []
+
+  // Con "Automatico" rileviamo dmy/mdy dalla colonna data prima di convertire le righe,
+  // così i file mese-prima (es. 03/15/2026) non finiscono scartati o con giorno e mese invertiti.
+  let dateFormat = mapping.dateFormat
+  if ((dateFormat == null || dateFormat === 'auto') && mapping.dateReg != null) {
+    const col = mapping.dateReg
+    const sample: RawCell[] = []
+    for (let i = headerRow + 1; i < rows.length; i++) {
+      const cell = rows[i]?.[col]
+      if (cell != null && cell !== '') sample.push(cell)
+    }
+    dateFormat = detectDateFormat(sample)
+  }
+
   for (let i = headerRow + 1; i < rows.length; i++) {
     const raw = rows[i]
     if (!raw || raw.every((c) => c == null || String(c).trim() === '')) continue
-    const dateReg = mapping.dateReg != null ? parseDateValue(raw[mapping.dateReg], mapping.dateFormat) : null
+    const dateReg = mapping.dateReg != null ? parseDateValue(raw[mapping.dateReg], dateFormat) : null
     let amount: number | null = null
     if (mapping.amount != null) {
       amount = parseAmountValue(raw[mapping.amount])
@@ -324,7 +356,7 @@ export function normalizeRows(
     out.push({
       index: i,
       dateReg,
-      dateVal: mapping.dateVal != null ? parseDateValue(raw[mapping.dateVal], mapping.dateFormat) : null,
+      dateVal: mapping.dateVal != null ? parseDateValue(raw[mapping.dateVal], dateFormat) : null,
       causale,
       description,
       descriptionNorm: normalizeDescription(description),

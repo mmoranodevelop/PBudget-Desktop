@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import {
   parseFileBuffer, detectHeaderRow, headerFingerprint, suggestMapping, normalizeRows,
-  parseAmountValue, parseDateValue, normalizeDescription, extractMerchant, dedupHash, similarity
+  parseAmountValue, parseDateValue, detectDateFormat, normalizeDescription, extractMerchant, dedupHash, similarity
 } from '../src/main/importer/core'
 
 const SAMPLE = resolve(__dirname, '../data/Elenco_Movimenti.xls')
@@ -71,6 +71,42 @@ describe('normalizzazione date import', () => {
     )
     expect(errors).toEqual([])
     expect(rows[0]).toMatchObject({ dateReg: '2026-07-09', dateVal: '2026-07-10' })
+  })
+
+  it('Automatico rileva i file mese-prima (mm/dd/yyyy) senza scartarli', () => {
+    const { rows, errors } = normalizeRows(
+      [
+        ['Data', 'Descrizione', 'Importo'],
+        ['03/15/2026', 'Spesa A', '-10'], // mese-prima: il 15 rivela il formato
+        ['12/31/2025', 'Spesa B', '-20'],
+        ['01/09/2026', 'Spesa C', '-30']
+      ],
+      0,
+      { dateReg: 0, dateVal: null, causale: null, description: 1, amount: 2, amountIn: null, amountOut: null, dateFormat: 'auto' }
+    )
+    expect(errors).toEqual([])
+    expect(rows.map((r) => r.dateReg)).toEqual(['2026-03-15', '2025-12-31', '2026-01-09'])
+  })
+
+  it('Automatico resta su giorno-prima (dd/mm/yyyy) per i file europei', () => {
+    const { rows } = normalizeRows(
+      [['Data', 'Descrizione', 'Importo'], ['15/03/2026', 'Spesa', '-10'], ['09/07/2026', 'Spesa', '-5']],
+      0,
+      { dateReg: 0, dateVal: null, causale: null, description: 1, amount: 2, amountIn: null, amountOut: null }
+    )
+    expect(rows.map((r) => r.dateReg)).toEqual(['2026-03-15', '2026-07-09'])
+  })
+})
+
+describe('detectDateFormat', () => {
+  it('riconosce mese-prima da un giorno > 12', () => {
+    expect(detectDateFormat(['03/15/2026', '01/09/2026'])).toBe('mdy')
+  })
+  it('riconosce giorno-prima da un giorno > 12', () => {
+    expect(detectDateFormat(['15/03/2026', '09/01/2026'])).toBe('dmy')
+  })
+  it('default dmy quando ambiguo', () => {
+    expect(detectDateFormat(['05/03/2026', '09/07/2026'])).toBe('dmy')
   })
 })
 

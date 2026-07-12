@@ -93,7 +93,7 @@ export default function App(): JSX.Element {
                   'group relative flex w-full items-center rounded-xl px-3 py-2.5 text-left text-sm transition-[background-color,color,box-shadow,transform] duration-150 ease-[var(--ease-out)] focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 active:scale-[0.985]',
                   sidebarCollapsed ? 'justify-center' : 'gap-3',
                   active
-                    ? 'bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
+                    ? 'bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm before:absolute before:inset-y-2 before:left-0 before:rounded-full before:bg-primary'
                     : 'text-muted-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-foreground'
                 )}
               >
