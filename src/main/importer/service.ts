@@ -9,7 +9,7 @@ import {
   type RawRow, type NormalizedRow
 } from './core'
 import type {
-  ColumnMapping, ImportAnalysis, StageResult, StagedRow, CommitResult
+  AccountInput, ColumnMapping, ImportAnalysis, StageResult, StagedRow, CommitResult
 } from '@shared/types'
 
 interface ImportSession {
@@ -21,8 +21,6 @@ interface ImportSession {
 }
 
 const sessions = new Map<string, ImportSession>()
-const DEFAULT_ACCOUNT = 1
-
 export function analyzeBuffer(buf: Buffer, fileName: string, source: 'local' | 'gdrive' = 'local'): ImportAnalysis {
   const rows = parseFileBuffer(buf, fileName)
   if (rows.length === 0) throw new Error('Il file è vuoto o non leggibile')
@@ -63,7 +61,7 @@ export function analyzeBuffer(buf: Buffer, fileName: string, source: 'local' | '
   }
 }
 
-export function stage(token: string, mapping: ColumnMapping, headerRow: number): StageResult {
+export function stage(token: string, mapping: ColumnMapping, headerRow: number, accountId: number | null): StageResult {
   const session = sessions.get(token)
   if (!session) throw new Error('Sessione di import scaduta: ricarica il file')
   const db = getDb()
@@ -79,13 +77,13 @@ export function stage(token: string, mapping: ColumnMapping, headerRow: number):
   const dates = normalized.map((r) => r.dateReg).sort()
   const from = dates[0]
   const to = dates[dates.length - 1]
-  const existing = db
+  const existing = accountId == null ? [] : db
     .prepare(
       `SELECT id, date_reg, description, description_norm, amount, hash_dedup
        FROM transactions
        WHERE account_id = ? AND date_reg BETWEEN date(?, '-3 days') AND date(?, '+3 days')`
     )
-    .all(DEFAULT_ACCOUNT, from, to) as unknown as {
+    .all(accountId, from, to) as unknown as {
     id: number
     date_reg: string
     description: string
@@ -103,6 +101,7 @@ export function stage(token: string, mapping: ColumnMapping, headerRow: number):
 
   const rules = loadActiveRules()
   const seenInFile = new Map<string, number>() // hash -> conteggio già visto nel file stesso
+  const dedupAccountId = accountId ?? 0
   const staged: StagedRow[] = []
   let dup = 0
   let probable = 0
@@ -110,7 +109,7 @@ export function stage(token: string, mapping: ColumnMapping, headerRow: number):
   let overlapTo: string | null = null
 
   for (const r of normalized) {
-    const hash = dedupHash(DEFAULT_ACCOUNT, r.dateReg, r.amount, r.descriptionNorm)
+    const hash = dedupHash(dedupAccountId, r.dateReg, r.amount, r.descriptionNorm)
     const seenCount = seenInFile.get(hash) ?? 0
     seenInFile.set(hash, seenCount + 1)
 
@@ -199,7 +198,9 @@ export function commit(
   mapping: ColumnMapping,
   headerRow: number,
   includeIndexes: number[],
-  profileName: string | null
+  profileName: string | null,
+  accountId: number | null,
+  newAccount: AccountInput | null = null
 ): CommitResult {
   const session = sessions.get(token)
   if (!session) throw new Error('Sessione di import scaduta: ricarica il file')
@@ -210,6 +211,20 @@ export function commit(
   const hash = fileHash(session.buf)
 
   return transaction(() => {
+    let resolvedAccountId = accountId
+    if (newAccount) {
+      if (!newAccount.name.trim()) throw new Error('Inserisci un nome per il nuovo conto o carta.')
+      const created = db.prepare(
+        'INSERT INTO accounts (name, iban, currency, type, color, icon, initial_balance, initial_balance_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        newAccount.name.trim(), newAccount.iban || null, newAccount.currency || 'EUR', newAccount.type,
+        newAccount.color || '#0f766e', newAccount.icon || 'landmark', newAccount.initialBalance || 0,
+        newAccount.initialBalanceDate || null
+      )
+      resolvedAccountId = Number(created.lastInsertRowid)
+    }
+    if (resolvedAccountId == null) throw new Error('Scegli un conto o una carta per l’import.')
+
     // archivia il file originale
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
     const archivedPath = join(getImportArchiveDir(), `${stamp}_${basename(session.fileName)}`)
@@ -239,9 +254,9 @@ export function commit(
       const catId = firstMatchingCategory(rules, r)
       if (catId != null) categorized++
       insTx.run(
-        DEFAULT_ACCOUNT, importFileId, r.dateReg, r.dateVal, r.causale,
+        resolvedAccountId, importFileId, r.dateReg, r.dateVal, r.causale,
         r.description, r.descriptionNorm, r.merchant, r.amount,
-        catId, dedupHash(DEFAULT_ACCOUNT, r.dateReg, r.amount, r.descriptionNorm)
+        catId, dedupHash(resolvedAccountId, r.dateReg, r.amount, r.descriptionNorm)
       )
     }
 
@@ -249,11 +264,11 @@ export function commit(
     if (profileName) {
       const fp = headerFingerprint(session.rows[headerRow] ?? [])
       db.prepare(
-        `INSERT INTO mapping_profiles (name, fingerprint, mapping_json, header_row)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO mapping_profiles (name, fingerprint, mapping_json, header_row, account_id)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(fingerprint) DO UPDATE SET name = excluded.name,
-           mapping_json = excluded.mapping_json, header_row = excluded.header_row`
-      ).run(profileName, fp, JSON.stringify(mapping), headerRow)
+           mapping_json = excluded.mapping_json, header_row = excluded.header_row, account_id = excluded.account_id`
+      ).run(profileName, fp, JSON.stringify(mapping), headerRow, resolvedAccountId)
     }
 
     sessions.delete(token)

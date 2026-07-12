@@ -18,6 +18,23 @@ export interface Tag {
   color: string
 }
 
+export type AccountType = 'main' | 'secondary' | 'credit_card'
+export type DateFormat = 'auto' | 'dmy' | 'mdy' | 'ymd'
+
+export interface Account {
+  id: number
+  name: string
+  iban: string | null
+  currency: string
+  type: AccountType
+  color: string
+  icon: string
+  initialBalance: number
+  initialBalanceDate: string | null
+}
+
+export type AccountInput = Omit<Account, 'id'>
+
 export type RuleField = 'description' | 'merchant' | 'causale'
 export type RuleMatchType = 'contains' | 'exact' | 'regex'
 
@@ -36,6 +53,10 @@ export type TransactionStatus = 'active' | 'duplicate_ignored'
 export interface Transaction {
   id: number
   accountId: number
+  accountName: string
+  accountType: AccountType
+  accountColor: string
+  accountIcon: string
   importFileId: number | null
   dateReg: string // ISO yyyy-mm-dd
   dateVal: string | null
@@ -48,12 +69,14 @@ export interface Transaction {
   notes: string | null
   status: TransactionStatus
   tags: Tag[]
+  linkedCardTransactions?: Transaction[]
 }
 
 export interface TransactionFilter {
   from?: string
   to?: string
   categoryIds?: number[]
+  accountIds?: number[]
   tagIds?: number[]
   search?: string
   uncategorized?: boolean
@@ -84,6 +107,8 @@ export interface ColumnMapping {
   amount: number | null // colonna unica con segno
   amountIn: number | null // oppure coppia entrate/uscite
   amountOut: number | null
+  amountMultiplier?: 1 | -1 // utile per estratti carta che riportano le spese con segno positivo
+  dateFormat?: DateFormat
 }
 
 export interface MappingProfile {
@@ -92,6 +117,7 @@ export interface MappingProfile {
   fingerprint: string
   mapping: ColumnMapping
   headerRow: number
+  accountId: number | null
 }
 
 export interface ImportAnalysis {
@@ -185,6 +211,8 @@ export interface DashboardStats {
   ytdExpense: number
   savingsRate: number
   balance: number
+  startingBalance: number
+  startingBalanceDate: string | null
   monthlySeries: { month: number; income: number; expense: number }[]
   balanceSeries: { date: string; balance: number }[]
   topCategories: { categoryId: number; name: string; color: string; amount: number }[]
@@ -271,19 +299,26 @@ export interface DataInfo {
   backups: { file: string; date: string; sizeBytes: number }[]
 }
 
+export interface AccountDeleteResult {
+  transactionsDeleted: number
+  importsDeleted: number
+}
+
 // ---------- API (esposta dal preload) ----------
 
 export interface BudgetApi {
   // import
   importPickFile(): Promise<ImportAnalysis | null>
   importAnalyzeBuffer(name: string, buf: ArrayBuffer): Promise<ImportAnalysis>
-  importStage(token: string, mapping: ColumnMapping, headerRow: number): Promise<StageResult>
+  importStage(token: string, mapping: ColumnMapping, headerRow: number, accountId: number | null): Promise<StageResult>
   importCommit(
     token: string,
     mapping: ColumnMapping,
     headerRow: number,
     includeIndexes: number[],
-    profileName: string | null
+    profileName: string | null,
+    accountId: number | null,
+    newAccount?: AccountInput | null
   ): Promise<CommitResult>
   importHistory(): Promise<ImportFileInfo[]>
   // transactions
@@ -294,6 +329,15 @@ export interface BudgetApi {
   txAddTag(ids: number[], tagId: number): Promise<void>
   txRemoveTag(id: number, tagId: number): Promise<void>
   txRestoreDuplicate(id: number): Promise<void>
+  txCreate(input: { accountId: number; dateReg: string; description: string; amount: number; categoryId: number | null; notes: string | null }): Promise<Transaction>
+  txCardCandidates(id: number): Promise<Transaction[]>
+  txLinkCardTransactions(mainTransactionId: number, cardTransactionIds: number[]): Promise<void>
+  txLinkedCardTransactions(mainTransactionId: number): Promise<Transaction[]>
+  // accounts and opening balances
+  accountList(): Promise<Account[]>
+  accountCreate(input: AccountInput): Promise<Account>
+  accountUpdate(id: number, patch: Partial<Omit<Account, 'id'>>): Promise<Account>
+  accountDelete(id: number): Promise<AccountDeleteResult>
   // categories
   catList(): Promise<Category[]>
   catCreate(c: Omit<Category, 'id' | 'isSystem'>): Promise<Category>
@@ -331,6 +375,8 @@ export interface BudgetApi {
   // settings
   dataInfo(): Promise<DataInfo>
   backupNow(): Promise<string>
+  deleteBackup(file: string): Promise<void>
+  wipeFinancialData(): Promise<void>
   settingGet(key: string): Promise<string | null>
   settingSet(key: string, value: string): Promise<void>
   profileList(): Promise<MappingProfile[]>

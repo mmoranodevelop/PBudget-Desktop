@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { FlaskConical, Pencil, Plus, Trash2, Wand2, X } from 'lucide-react'
 import type { Category, Rule, RuleField, RuleMatchType, Tag } from '@shared/types'
-import { api } from '../api'
-import { CategorySelect, ModalShell } from '../components'
+import { api } from '@/api'
+import { CategorySelect, ModalShell } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,6 +15,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
+import { toast } from '@/components/ui/toast'
 
 const FIELD_LABEL: Record<RuleField, string> = {
   description: 'Descrizione',
@@ -28,11 +29,12 @@ const MATCH_LABEL: Record<RuleMatchType, string> = {
 }
 
 export default function CategoriesRules({
-  categories, tags, onChanged
+  categories, tags, onChanged, mode
 }: {
   categories: Category[]
   tags: Tag[]
   onChanged: () => void
+  mode: 'categories' | 'rules'
 }): JSX.Element {
   const [rules, setRules] = useState<Rule[]>([])
   const [editCat, setEditCat] = useState<Partial<Category> | null>(null)
@@ -48,7 +50,7 @@ export default function CategoriesRules({
   const [applyResult, setApplyResult] = useState<number | null>(null)
 
   const loadRules = (): void => {
-    api.ruleList().then(setRules).catch(console.error)
+    api.ruleList().then(setRules).catch(() => undefined)
   }
   useEffect(loadRules, [])
 
@@ -67,6 +69,7 @@ export default function CategoriesRules({
     }
     setEditCat(null)
     onChanged()
+    toast.success(editCat.id ? 'Categoria aggiornata' : 'Categoria creata', editCat.name)
   }
 
   const confirmDeleteCat = async (): Promise<void> => {
@@ -75,6 +78,7 @@ export default function CategoriesRules({
     setDeleteCat(null)
     setReassignTo(null)
     onChanged()
+    toast.success('Categoria eliminata', deleteCat.name)
   }
 
   const createRule = async (): Promise<void> => {
@@ -90,6 +94,7 @@ export default function CategoriesRules({
     setNewRule((r) => ({ ...r, pattern: '' }))
     setTestCount(null)
     loadRules()
+    toast.success('Regola creata')
   }
 
   const testNewRule = async (): Promise<void> => {
@@ -101,6 +106,7 @@ export default function CategoriesRules({
     const n = await api.ruleApplyAll(true)
     setApplyResult(n)
     onChanged()
+    toast.success('Regole applicate', `${n} movimenti categorizzati.`)
   }
 
   const parents = categories.filter((c) => c.parentId === null)
@@ -109,9 +115,9 @@ export default function CategoriesRules({
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Categorie e Regole</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{mode === 'categories' ? 'Categorie' : 'Regole'}</h1>
         <p className="text-sm text-muted-foreground">
-          Personalizza il kit di categorie e le regole di categorizzazione automatica.
+          {mode === 'categories' ? 'Organizza categorie e tag per dare struttura ai movimenti.' : 'Automatizza la categorizzazione dei movimenti importati.'}
         </p>
       </div>
 
@@ -126,8 +132,8 @@ export default function CategoriesRules({
         </Alert>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[2fr_3fr]">
-        <Card>
+      <div className="grid gap-4">
+        <Card className={mode === 'rules' ? 'hidden' : ''}>
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="text-sm">Categorie</CardTitle>
             <Button
@@ -186,7 +192,7 @@ export default function CategoriesRules({
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={mode === 'categories' ? 'hidden' : ''}>
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="text-sm">Regole di categorizzazione ({rules.length})</CardTitle>
             <Button variant="outline" size="sm" onClick={applyAll}>
@@ -291,7 +297,7 @@ export default function CategoriesRules({
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          onClick={() => api.ruleDelete(r.id).then(loadRules)}
+                          onClick={() => api.ruleDelete(r.id).then(() => { loadRules(); toast.success('Regola eliminata') })}
                         >
                           <Trash2 className="size-3.5" />
                         </Button>
@@ -305,7 +311,7 @@ export default function CategoriesRules({
         </Card>
       </div>
 
-      {tags.length > 0 && (
+      {mode === 'categories' && tags.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Tag</CardTitle>
@@ -317,7 +323,7 @@ export default function CategoriesRules({
                 className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
                 style={{ backgroundColor: `${t.color}1f`, color: t.color }}
                 title="Elimina tag"
-                onClick={() => api.tagDelete(t.id).then(onChanged)}
+                onClick={() => api.tagDelete(t.id).then(() => { onChanged(); toast.success('Tag eliminato', t.name) })}
               >
                 {t.name}
                 <X className="size-3" />

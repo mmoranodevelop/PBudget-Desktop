@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CalendarRange, Copy, Plus, Trash2 } from 'lucide-react'
 import type { BudgetVsActual, Category } from '@shared/types'
-import { api, fmtEur, MONTH_NAMES, MONTH_SHORT } from '../api'
-import { BudgetBar, CategorySelect, ModalShell } from '../components'
+import { api, fmtEur, MONTH_NAMES, MONTH_SHORT } from '@/api'
+import { BudgetBar, CategorySelect, ModalShell } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
+import { toast } from '@/components/ui/toast'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export default function Budget({ categories }: { categories: Category[] }): JSX.Element {
   const now = new Date()
@@ -24,9 +26,10 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
   const [addAmount, setAddAmount] = useState('')
   const [detail, setDetail] = useState<BudgetVsActual | null>(null)
   const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   const load = useCallback(() => {
-    api.budgetVsActual(year, month).then(setRows).catch(console.error)
+    api.budgetVsActual(year, month).then((result) => { setRows(result); setLoading(false) }).catch(() => undefined)
   }, [year, month])
 
   useEffect(() => {
@@ -40,6 +43,7 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
     setAddCat(null)
     setAddAmount('')
     load()
+    toast.success('Budget aggiunto')
   }
 
   const copyFromActual = async (): Promise<void> => {
@@ -47,6 +51,7 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
     try {
       await api.budgetCopyFromActual(year, year - 1)
       load()
+      toast.success('Budget copiato', `Valori ricavati dai movimenti del ${year - 1}.`)
     } finally {
       setBusy(false)
     }
@@ -66,7 +71,10 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
     for (let m = 1; m <= 12; m++) await api.budgetSet(year, categoryId, m, 0)
     setDetail(null)
     load()
+    toast.success('Budget eliminato')
   }
+
+  if (loading) return <div className="space-y-4"><Skeleton className="h-16 w-72" /><div className="grid grid-cols-3 gap-4"><Skeleton className="h-28" /><Skeleton className="h-28" /><Skeleton className="h-28" /></div><Skeleton className="h-80 w-full" /></div>
 
   const totalBudget = rows.reduce((a, r) => a + r.budgetYear, 0)
   const totalActual = rows.reduce((a, r) => a + r.actualYear, 0)

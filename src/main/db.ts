@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { app } from 'electron'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync, rmSync } from 'fs'
 import { seedIfEmpty } from './seed'
 
@@ -27,7 +27,11 @@ CREATE TABLE IF NOT EXISTS accounts (
   name TEXT NOT NULL,
   iban TEXT,
   currency TEXT NOT NULL DEFAULT 'EUR',
-  initial_balance REAL NOT NULL DEFAULT 0
+  type TEXT NOT NULL DEFAULT 'main' CHECK (type IN ('main','secondary','credit_card')),
+  color TEXT NOT NULL DEFAULT '#0f766e',
+  icon TEXT NOT NULL DEFAULT 'landmark',
+  initial_balance REAL NOT NULL DEFAULT 0,
+  initial_balance_date TEXT
 );
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -45,7 +49,8 @@ CREATE TABLE IF NOT EXISTS mapping_profiles (
   name TEXT NOT NULL,
   fingerprint TEXT NOT NULL UNIQUE,
   mapping_json TEXT NOT NULL,
-  header_row INTEGER NOT NULL DEFAULT 0
+  header_row INTEGER NOT NULL DEFAULT 0,
+  account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS import_files (
@@ -95,6 +100,13 @@ CREATE TABLE IF NOT EXISTS transaction_tags (
   PRIMARY KEY (transaction_id, tag_id)
 );
 
+CREATE TABLE IF NOT EXISTS credit_card_links (
+  main_transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+  card_transaction_id INTEGER NOT NULL UNIQUE REFERENCES transactions(id) ON DELETE CASCADE,
+  PRIMARY KEY (main_transaction_id, card_transaction_id)
+);
+CREATE INDEX IF NOT EXISTS idx_card_links_main ON credit_card_links(main_transaction_id);
+
 CREATE TABLE IF NOT EXISTS rules (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   field TEXT NOT NULL CHECK (field IN ('description','merchant','causale')),
@@ -129,9 +141,24 @@ export function initDb(): DatabaseSync {
   }
   db = new DatabaseSync(getDbPath())
   db.exec(SCHEMA)
+  // Migrazioni additive per database creati prima dell'introduzione di conti e profili evoluti.
+  migrateSchema(db)
   seedIfEmpty(db)
   rotateBackups()
   return db
+}
+
+function migrateSchema(database: DatabaseSync): void {
+  const columns = (table: string): Set<string> => new Set(
+    (database.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
+  )
+  const accountColumns = columns('accounts')
+  if (!accountColumns.has('type')) database.exec("ALTER TABLE accounts ADD COLUMN type TEXT NOT NULL DEFAULT 'main'")
+  if (!accountColumns.has('color')) database.exec("ALTER TABLE accounts ADD COLUMN color TEXT NOT NULL DEFAULT '#0f766e'")
+  if (!accountColumns.has('icon')) database.exec("ALTER TABLE accounts ADD COLUMN icon TEXT NOT NULL DEFAULT 'landmark'")
+  if (!accountColumns.has('initial_balance_date')) database.exec('ALTER TABLE accounts ADD COLUMN initial_balance_date TEXT')
+  const profileColumns = columns('mapping_profiles')
+  if (!profileColumns.has('account_id')) database.exec('ALTER TABLE mapping_profiles ADD COLUMN account_id INTEGER')
 }
 
 export function getDb(): DatabaseSync {
@@ -161,6 +188,29 @@ export function backupNow(): string {
   copyFileSync(getDbPath(), dest)
   rotateBackups()
   return dest
+}
+
+/** Elimina un backup locale identificato dal solo nome file. */
+export function deleteBackup(file: string): void {
+  const safeName = basename(file)
+  if (safeName !== file || !safeName.endsWith('.db')) {
+    throw new Error('Nome backup non valido')
+  }
+
+  const backupPath = join(getBackupDir(), safeName)
+  if (!existsSync(backupPath)) throw new Error('Backup non trovato')
+  rmSync(backupPath)
+}
+
+/** Elimina dati finanziari e archivi importati, preservando categorie, regole e profili. */
+export function wipeFinancialData(): void {
+  const d = getDb()
+  transaction(() => {
+    d.exec('DELETE FROM budget_lines; DELETE FROM transactions; DELETE FROM import_files; DELETE FROM tags;')
+  })
+  const archive = getImportArchiveDir()
+  if (existsSync(archive)) rmSync(archive, { recursive: true, force: true })
+  mkdirSync(archive, { recursive: true })
 }
 
 function rotateBackups(): void {

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Download, RotateCcw, Search,
+  ArrowDown, ArrowUp, ChevronLeft, ChevronRight, CreditCard, Download, RotateCcw, Search,
   StickyNote, Tag as TagIcon, X, Wand2
 } from 'lucide-react'
-import type { Category, Tag, Transaction, TransactionFilter, TransactionListResult } from '@shared/types'
-import { api, fmtDate, fmtEur } from '../api'
-import { Amount, CategorySelect, ModalShell } from '../components'
+import type { Account, Category, Tag, Transaction, TransactionFilter, TransactionListResult } from '@shared/types'
+import { api, fmtDate, fmtEur } from '@/api'
+import { Amount, CategorySelect, ModalShell } from '@/components'
+import { AccountIcon } from '@/components/account-icon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -18,6 +19,9 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { DatePicker } from '@/components/ui/date-picker'
+import { toast } from '@/components/ui/toast'
+import { Skeleton } from '@/components/ui/skeleton'
 
 const PAGE_SIZE = 100
 const ALL = '__all__'
@@ -50,14 +54,22 @@ export default function Transactions({
   const [noteText, setNoteText] = useState('')
   const [exportMsg, setExportMsg] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
+  const [cardLinkTx, setCardLinkTx] = useState<Transaction | null>(null)
+  const [cardCandidates, setCardCandidates] = useState<Transaction[]>([])
+  const [linkedCardIds, setLinkedCardIds] = useState<Set<number>>(new Set())
+  const [accounts, setAccounts] = useState<Account[]>([])
 
   const load = useCallback(() => {
-    api.txList(filter).then(setData).catch(console.error)
+    api.txList(filter).then(setData).catch(() => undefined)
   }, [filter])
 
   useEffect(() => {
     load()
   }, [load, version])
+
+  useEffect(() => {
+    api.accountList().then(setAccounts).catch(() => undefined)
+  }, [])
 
   const patchFilter = (p: Partial<TransactionFilter>): void => {
     setFilter((f) => ({ ...f, ...p, offset: p.offset ?? 0 }))
@@ -96,6 +108,7 @@ export default function Transactions({
   const bulkApply = async (): Promise<void> => {
     if (selected.size === 0) return
     await api.txBulkCategorize([...selected], bulkCat)
+    toast.success('Categoria applicata', `${selected.size} movimenti aggiornati.`)
     setSelected(new Set())
     refresh()
   }
@@ -103,6 +116,7 @@ export default function Transactions({
   const bulkTag = async (tagId: number): Promise<void> => {
     if (selected.size === 0) return
     await api.txAddTag([...selected], tagId)
+    toast.success('Tag applicato', `${selected.size} movimenti aggiornati.`)
     setSelected(new Set())
     refresh()
   }
@@ -114,18 +128,35 @@ export default function Transactions({
     setNewTagName('')
     onMetaChange()
     if (selected.size > 0) await bulkTag(tag.id)
+    toast.success('Tag creato', name)
   }
 
   const saveNote = async (): Promise<void> => {
     if (!noteTx) return
     await api.txUpdate(noteTx.id, { notes: noteText.trim() || null })
+    toast.success('Nota salvata')
     setNoteTx(null)
     refresh()
   }
 
+  const openCardLink = async (tx: Transaction): Promise<void> => {
+    if (cardLinkTx?.id === tx.id) { setCardLinkTx(null); return }
+    const [candidates, linked] = await Promise.all([api.txCardCandidates(tx.id), api.txLinkedCardTransactions(tx.id)])
+    setCardCandidates(candidates)
+    setLinkedCardIds(new Set(linked.map((r) => r.id)))
+    setCardLinkTx(tx)
+  }
+
+  const saveCardLink = async (): Promise<void> => {
+    if (!cardLinkTx) return
+    await api.txLinkCardTransactions(cardLinkTx.id, [...linkedCardIds])
+    toast.success('Movimenti carta collegati', `${linkedCardIds.size} movimenti associati all'addebito.`)
+    setCardLinkTx(null); refresh()
+  }
+
   const doExport = async (format: 'csv' | 'xlsx'): Promise<void> => {
     const path = await api.txExport(filter, format)
-    if (path) setExportMsg(`Esportato in ${path}`)
+    if (path) { setExportMsg(`Esportato in ${path}`); toast.success('Esportazione completata', path) }
   }
 
   const toggleSort = (col: NonNullable<TransactionFilter['sortBy']>): void => {
@@ -206,24 +237,18 @@ export default function Transactions({
             onChange={(e) => patchFilter({ search: e.target.value || undefined })}
           />
         </div>
-        <Input
-          type="date"
-          className="h-8 w-36"
-          value={filter.from ?? ''}
-          onChange={(e) => patchFilter({ from: e.target.value || undefined })}
-        />
-        <Input
-          type="date"
-          className="h-8 w-36"
-          value={filter.to ?? ''}
-          onChange={(e) => patchFilter({ to: e.target.value || undefined })}
-        />
+        <DatePicker className="h-8 w-40" value={filter.from ?? ''} onChange={(value) => patchFilter({ from: value || undefined })} placeholder="Da data" />
+        <DatePicker className="h-8 w-40" value={filter.to ?? ''} onChange={(value) => patchFilter({ to: value || undefined })} placeholder="A data" />
         <CategorySelect
           categories={categories}
           value={filter.categoryIds?.[0] ?? null}
           onChange={(id) => patchFilter({ categoryIds: id != null ? [id] : undefined })}
           emptyLabel="Tutte le categorie"
         />
+        <Select value={filter.accountIds?.[0] != null ? String(filter.accountIds[0]) : ALL} onValueChange={(value) => patchFilter({ accountIds: value === ALL ? undefined : [Number(value)] })}>
+          <SelectTrigger size="sm" className="w-44"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value={ALL}>Tutti i conti e carte</SelectItem>{accounts.map((account) => <SelectItem key={account.id} value={String(account.id)}>{account.type === 'credit_card' ? 'Carta · ' : 'Conto · '}{account.name}</SelectItem>)}</SelectContent>
+        </Select>
         <Select
           value={filter.type ?? ALL}
           onValueChange={(v) =>
@@ -323,6 +348,7 @@ export default function Transactions({
             </TableRow>
           </TableHeader>
           <TableBody>
+            {!data && Array.from({ length: 6 }, (_, index) => <TableRow key={`loading-${index}`}><TableCell colSpan={7}><Skeleton className="h-8 w-full" /></TableCell></TableRow>)}
             {rows.map((tx) => (
               <TableRow key={tx.id} className={cn(selected.has(tx.id) && 'bg-accent/40')}>
                 <TableCell>
@@ -355,6 +381,13 @@ export default function Transactions({
                       {tx.notes}
                     </div>
                   )}
+                  {cardLinkTx?.id === tx.id && (
+                    <div className="mt-2 rounded-lg border bg-muted/30 p-2.5">
+                      <p className="mb-2 text-xs font-medium">Movimenti carta da collegare</p>
+                      {cardCandidates.length === 0 ? <p className="text-xs text-muted-foreground">Nessun movimento carta disponibile nelle ultime settimane.</p> : <div className="max-h-36 space-y-1 overflow-y-auto">{cardCandidates.map((card) => <label key={card.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-accent"><Checkbox checked={linkedCardIds.has(card.id)} onCheckedChange={(checked) => setLinkedCardIds((ids) => { const next = new Set(ids); if (checked === true) next.add(card.id); else next.delete(card.id); return next })} /><span className="w-20 tabular-nums text-muted-foreground">{fmtDate(card.dateReg)}</span><span className="min-w-0 flex-1 truncate">{card.description}</span><Amount value={card.amount} className="text-xs" /></label>)}</div>}
+                      <div className="mt-2 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setCardLinkTx(null)}>Annulla</Button><Button size="sm" onClick={saveCardLink}>Salva collegamento</Button></div>
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className="text-right">
                   <Amount value={tx.amount} />
@@ -381,6 +414,10 @@ export default function Transactions({
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
+                    <Badge variant="outline" className="gap-1" style={{ borderColor: `${tx.accountColor}55`, backgroundColor: `${tx.accountColor}12`, color: tx.accountColor }}>
+                      <AccountIcon icon={tx.accountIcon} className="size-3" />
+                      {tx.accountName}
+                    </Badge>
                     {tx.tags.map((t) => (
                       <button
                         key={t.id}
@@ -396,6 +433,7 @@ export default function Transactions({
                   </div>
                 </TableCell>
                 <TableCell>
+                  {tx.amount < 0 && <Button variant="ghost" size="icon-sm" title="Collega movimenti carta" onClick={() => openCardLink(tx)}><CreditCard className="size-4" /></Button>}
                   <Button
                     variant="ghost"
                     size="icon-sm"

@@ -1,8 +1,20 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { DatePicker } from "@/components/ui/date-picker"
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+function Input({ className, type, value, onChange, ...props }: React.ComponentProps<"input">) {
+  if (type === "date") {
+    return (
+      <DatePicker
+        value={typeof value === "string" ? value : ""}
+        onChange={(nextValue) => onChange?.({ target: { value: nextValue } } as React.ChangeEvent<HTMLInputElement>)}
+        disabled={props.disabled}
+        placeholder={props.placeholder}
+        className={className}
+      />
+    )
+  }
   return (
     <input
       type={type}
@@ -13,6 +25,8 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
         "aria-invalid:border-destructive aria-invalid:ring-destructive/20",
         className
       )}
+      value={value}
+      onChange={onChange}
       {...props}
     />
   )

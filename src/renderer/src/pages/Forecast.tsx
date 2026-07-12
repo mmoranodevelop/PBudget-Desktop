@@ -3,10 +3,10 @@ import {
   ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
   ReferenceLine
 } from 'recharts'
-import { CalendarClock, Loader2, Plus, Repeat, X } from 'lucide-react'
+import { CalendarClock, Plus, Repeat, X } from 'lucide-react'
 import type { ForecastResult, ScenarioAdjustment } from '@shared/types'
-import { api, fmtEur, fmtDate, MONTH_NAMES } from '../api'
-import { CHART, CHART_TOOLTIP_STYLE } from '../components'
+import { api, fmtEur, fmtDate, MONTH_NAMES } from '@/api'
+import { CHART, CHART_TOOLTIP_STYLE } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export default function Forecast(): JSX.Element {
   const now = new Date()
@@ -28,7 +29,7 @@ export default function Forecast(): JSX.Element {
   const [fromMonth, setFromMonth] = useState(now.getMonth() + 1)
 
   const load = useCallback(() => {
-    api.forecast(year, adjustments).then(setData).catch(console.error)
+    api.forecast(year, adjustments).then(setData).catch(() => undefined)
   }, [year, adjustments])
 
   useEffect(() => {
@@ -47,11 +48,7 @@ export default function Forecast(): JSX.Element {
   }
 
   if (!data) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" /> Caricamento…
-      </div>
-    )
+    return <div className="space-y-4"><Skeleton className="h-16 w-72" /><div className="grid grid-cols-2 gap-4 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-28" />)}</div><Skeleton className="h-80 w-full" /></div>
   }
 
   const chartData = data.months.map((m) => ({

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import {
   parseFileBuffer, detectHeaderRow, headerFingerprint, suggestMapping, normalizeRows,
@@ -30,6 +30,18 @@ describe('parseAmountValue (formati importi)', () => {
   })
 })
 
+describe('normalizzazione import carta', () => {
+  it('inverte il segno quando gli acquisti della carta sono positivi nel file', () => {
+    const { rows, errors } = normalizeRows(
+      [['Data', 'Descrizione', 'Importo'], ['12/07/2026', 'Supermercato', '42,50']],
+      0,
+      { dateReg: 0, dateVal: null, causale: null, description: 1, amount: 2, amountIn: null, amountOut: null, amountMultiplier: -1 }
+    )
+    expect(errors).toEqual([])
+    expect(rows[0].amount).toBe(-42.5)
+  })
+})
+
 describe('parseDateValue (formati date)', () => {
   it('Date js', () => {
     expect(parseDateValue(new Date(2026, 6, 9))).toBe('2026-07-09')
@@ -38,12 +50,27 @@ describe('parseDateValue (formati date)', () => {
     expect(parseDateValue('09/07/2026')).toBe('2026-07-09')
     expect(parseDateValue('9/7/2026')).toBe('2026-07-09')
   })
+  it('mm/dd/yyyy quando il formato viene selezionato', () => {
+    expect(parseDateValue('07/09/2026', 'mdy')).toBe('2026-07-09')
+  })
   it('yyyy-mm-dd', () => {
     expect(parseDateValue('2026-07-09')).toBe('2026-07-09')
   })
   it('non-date', () => {
     expect(parseDateValue('PAGAMENTO')).toBeNull()
     expect(parseDateValue(null)).toBeNull()
+  })
+})
+
+describe('normalizzazione date import', () => {
+  it('usa il formato scelto per data registrazione e data valuta', () => {
+    const { rows, errors } = normalizeRows(
+      [['Data', 'Valuta', 'Descrizione', 'Importo'], ['07/09/2026', '07/10/2026', 'Acquisto', '-10']],
+      0,
+      { dateReg: 0, dateVal: 1, causale: null, description: 2, amount: 3, amountIn: null, amountOut: null, dateFormat: 'mdy' }
+    )
+    expect(errors).toEqual([])
+    expect(rows[0]).toMatchObject({ dateReg: '2026-07-09', dateVal: '2026-07-10' })
   })
 })
 
@@ -81,8 +108,9 @@ describe('dedup', () => {
   })
 })
 
-describe('file reale UniCredit (data/Elenco_Movimenti.xls)', () => {
-  const buf = readFileSync(SAMPLE)
+const describeRealFile = existsSync(SAMPLE) ? describe : describe.skip
+describeRealFile('file reale UniCredit (data/Elenco_Movimenti.xls)', () => {
+  const buf = existsSync(SAMPLE) ? readFileSync(SAMPLE) : Buffer.alloc(0)
   const rows = parseFileBuffer(buf, 'Elenco_Movimenti.xls')
 
   it('salta il preambolo e trova la riga header', () => {

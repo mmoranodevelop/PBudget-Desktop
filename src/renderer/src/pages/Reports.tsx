@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
 } from 'recharts'
-import { Loader2, TrendingDown, TrendingUp } from 'lucide-react'
+import { TrendingDown, TrendingUp } from 'lucide-react'
 import type { YearReport } from '@shared/types'
-import { api, fmtEur, MONTH_SHORT } from '../api'
-import { CHART, CHART_TOOLTIP_STYLE } from '../components'
+import { api, fmtEur, MONTH_SHORT } from '@/api'
+import { CHART, CHART_TOOLTIP_STYLE } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export default function Reports(): JSX.Element {
   const nowYear = new Date().getFullYear()
@@ -29,15 +30,11 @@ export default function Reports(): JSX.Element {
         setCurrent(c)
         setPrevious(p)
       })
-      .catch(console.error)
+      .catch(() => undefined)
   }, [year])
 
   if (!current || !previous) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" /> Caricamento…
-      </div>
-    )
+    return <div className="space-y-4"><Skeleton className="h-16 w-64" /><div className="grid grid-cols-3 gap-4">{Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-28" />)}</div><Skeleton className="h-80 w-full" /></div>
   }
 
   const sum = (a: number[]): number => a.reduce((x, y) => x + y, 0)

@@ -6,7 +6,19 @@ declare global {
   }
 }
 
-export const api = window.budgetApi
+const rawApi = window.budgetApi
+export const api = new Proxy({} as typeof rawApi, {
+  get(_target, property) {
+    const value = Reflect.get(rawApi, property)
+    if (typeof value !== 'function') return value
+    return (...args: unknown[]) => Promise.resolve(value.apply(rawApi, args)).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      if (error instanceof Error) Object.defineProperty(error, '__budgetApiNotified', { value: true, configurable: true })
+      window.dispatchEvent(new CustomEvent('budget:api-error', { detail: message }))
+      throw error
+    })
+  }
+}) as typeof rawApi
 
 export function fmtEur(n: number): string {
   return n.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })

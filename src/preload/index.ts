@@ -12,9 +12,9 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 const api: BudgetApi = {
   importPickFile: () => invoke('import:pickFile'),
   importAnalyzeBuffer: (name, buf) => invoke('import:analyzeBuffer', name, buf),
-  importStage: (token, mapping, headerRow) => invoke('import:stage', token, mapping, headerRow),
-  importCommit: (token, mapping, headerRow, includeIndexes, profileName) =>
-    invoke('import:commit', token, mapping, headerRow, includeIndexes, profileName),
+  importStage: (token, mapping, headerRow, accountId) => invoke('import:stage', token, mapping, headerRow, accountId),
+  importCommit: (token, mapping, headerRow, includeIndexes, profileName, accountId, newAccount) =>
+    invoke('import:commit', token, mapping, headerRow, includeIndexes, profileName, accountId, newAccount),
   importHistory: () => invoke('import:history'),
   txList: (filter) => invoke('tx:list', filter),
   txUpdate: (id, patch) => invoke('tx:update', id, patch),
@@ -23,6 +23,15 @@ const api: BudgetApi = {
   txAddTag: (ids, tagId) => invoke('tx:addTag', ids, tagId),
   txRemoveTag: (id, tagId) => invoke('tx:removeTag', id, tagId),
   txRestoreDuplicate: (id) => invoke('tx:restoreDuplicate', id),
+  txCreate: (input) => invoke('tx:create', input),
+  txCardCandidates: (id) => invoke('tx:cardCandidates', id),
+  txLinkCardTransactions: (mainTransactionId, cardTransactionIds) =>
+    invoke('tx:linkCardTransactions', mainTransactionId, cardTransactionIds),
+  txLinkedCardTransactions: (mainTransactionId) => invoke('tx:linkedCardTransactions', mainTransactionId),
+  accountList: () => invoke('account:list'),
+  accountCreate: (input) => invoke('account:create', input),
+  accountUpdate: (id, patch) => invoke('account:update', id, patch),
+  accountDelete: (id) => invoke('account:delete', id),
   catList: () => invoke('cat:list'),
   catCreate: (c) => invoke('cat:create', c),
   catUpdate: (id, patch) => invoke('cat:update', id, patch),
@@ -52,6 +61,8 @@ const api: BudgetApi = {
   forecast: (year, adjustments) => invoke('forecast:get', year, adjustments),
   dataInfo: () => invoke('settings:dataInfo'),
   backupNow: () => invoke('settings:backupNow'),
+  deleteBackup: (file) => invoke('settings:deleteBackup', file),
+  wipeFinancialData: () => invoke('settings:wipeFinancialData'),
   settingGet: (key) => invoke('settings:get', key),
   settingSet: (key, value) => invoke('settings:set', key, value),
   profileList: () => invoke('profile:list'),

@@ -24,18 +24,18 @@ export async function runSmokeTest(): Promise<void> {
   log('profilo riconosciuto', analysis.matchedProfile?.name ?? null)
   log('righe totali', analysis.totalRows)
 
-  const staged1 = stage(analysis.token, analysis.suggestedMapping, analysis.headerRow)
+  const staged1 = stage(analysis.token, analysis.suggestedMapping, analysis.headerRow, 1)
   log('staging 1 (nuovi/duplicati)', [staged1.stats.new, staged1.stats.duplicates])
 
   const result1 = commit(
     analysis.token, analysis.suggestedMapping, analysis.headerRow,
-    staged1.rows.filter((r) => r.include).map((r) => r.index), null
+    staged1.rows.filter((r) => r.include).map((r) => r.index), null, 1
   )
   log('import 1 (importati/categorizzati)', [result1.imported, result1.categorized])
 
   // 2° import dello stesso file: tutto deve risultare duplicato
   const analysis2 = analyzeBuffer(buf, 'Elenco_Movimenti.xls')
-  const staged2 = stage(analysis2.token, analysis2.suggestedMapping, analysis2.headerRow)
+  const staged2 = stage(analysis2.token, analysis2.suggestedMapping, analysis2.headerRow, 1)
   log('staging 2 (nuovi/duplicati)', [staged2.stats.new, staged2.stats.duplicates])
   if (staged2.stats.new !== 0) throw new Error('SMOKE FAIL: attesi 0 nuovi al secondo import')
   if (staged2.stats.duplicates !== result1.imported) {

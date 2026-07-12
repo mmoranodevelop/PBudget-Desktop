@@ -1,18 +1,27 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
-import { readFileSync, statSync, existsSync, readdirSync } from 'fs'
-import { basename, join } from 'path'
+import {BrowserWindow, dialog, ipcMain} from 'electron'
+import {existsSync, readdirSync, readFileSync, rmSync, statSync} from 'fs'
+import {basename, join} from 'path'
 import * as XLSX from 'xlsx'
-import { getDb, getDbPath, getBackupDir, backupNow } from './db'
-import { analyzeBuffer, stage, commit } from './importer/service'
-import { applyRulesToExisting, testRule } from './rules'
-import { dashboardStats, budgetGet, budgetSet, budgetVsActual, budgetCopyFromActual } from './stats'
-import { forecast } from './forecast'
-import {
-  gdriveStatus, gdriveConfigure, gdriveConnect, gdriveDisconnect, gdriveListFiles, gdriveDownload
-} from './gdrive'
+import {backupNow, deleteBackup, getBackupDir, getDb, getDbPath, transaction, wipeFinancialData} from './db'
+import {analyzeBuffer, commit, stage} from './importer/service'
+import {deleteAccountRecord, updateAccountRecord} from './account-store'
+import {dedupHash, normalizeDescription} from './importer/core'
+import {applyRulesToExisting, testRule} from './rules'
+import {budgetCopyFromActual, budgetGet, budgetSet, budgetVsActual, dashboardStats} from './stats'
+import {forecast} from './forecast'
+import {gdriveConfigure, gdriveConnect, gdriveDisconnect, gdriveDownload, gdriveListFiles, gdriveStatus} from './gdrive'
 import type {
-  Category, ColumnMapping, Rule, ScenarioAdjustment, Tag, Transaction, TransactionFilter,
-  TransactionListResult, YearReport
+  Account,
+  AccountInput,
+  Category,
+  ColumnMapping,
+  Rule,
+  ScenarioAdjustment,
+  Tag,
+  Transaction,
+  TransactionFilter,
+  TransactionListResult,
+  YearReport
 } from '@shared/types'
 
 function handle(channel: string, fn: (...args: never[]) => unknown): void {
@@ -28,6 +37,10 @@ function handle(channel: string, fn: (...args: never[]) => unknown): void {
 interface TxDbRow {
   id: number
   account_id: number
+  account_name?: string
+  account_type?: 'main' | 'secondary' | 'credit_card'
+  account_color?: string
+  account_icon?: string
   import_file_id: number | null
   date_reg: string
   date_val: string | null
@@ -45,6 +58,10 @@ function toTx(r: TxDbRow, tags: Tag[]): Transaction {
   return {
     id: r.id,
     accountId: r.account_id,
+    accountName: r.account_name ?? 'Conto',
+    accountType: r.account_type ?? 'main',
+    accountColor: r.account_color ?? '#0f766e',
+    accountIcon: r.account_icon ?? 'landmark',
     importFileId: r.import_file_id,
     dateReg: r.date_reg,
     dateVal: r.date_val,
@@ -79,6 +96,11 @@ function buildTxWhere(f: TransactionFilter): { where: string; params: (string | 
       `(t.category_id IN (${ph}) OR t.category_id IN (SELECT id FROM categories WHERE parent_id IN (${ph})))`
     )
     params.push(...f.categoryIds, ...f.categoryIds)
+  }
+  if (f.accountIds && f.accountIds.length > 0) {
+    const ph = f.accountIds.map(() => '?').join(',')
+    conds.push(`t.account_id IN (${ph})`)
+    params.push(...f.accountIds)
   }
   if (f.tagIds && f.tagIds.length > 0) {
     const ph = f.tagIds.map(() => '?').join(',')
@@ -131,13 +153,13 @@ export function registerIpcHandlers(): void {
   handle('import:analyzeBuffer', (name: string, buf: ArrayBuffer) =>
     analyzeBuffer(Buffer.from(buf), name, 'local')
   )
-  handle('import:stage', (token: string, mapping: ColumnMapping, headerRow: number) =>
-    stage(token, mapping, headerRow)
+  handle('import:stage', (token: string, mapping: ColumnMapping, headerRow: number, accountId: number | null) =>
+    stage(token, mapping, headerRow, accountId)
   )
   handle(
     'import:commit',
-    (token: string, mapping: ColumnMapping, headerRow: number, includeIndexes: number[], profileName: string | null) =>
-      commit(token, mapping, headerRow, includeIndexes, profileName)
+    (token: string, mapping: ColumnMapping, headerRow: number, includeIndexes: number[], profileName: string | null, accountId: number | null, newAccount?: AccountInput | null) =>
+      commit(token, mapping, headerRow, includeIndexes, profileName, accountId, newAccount)
   )
   handle('import:history', () =>
     getDb()
@@ -160,7 +182,8 @@ export function registerIpcHandlers(): void {
 
     const rows = db
       .prepare(
-        `SELECT t.* FROM transactions t WHERE ${where}
+        `SELECT t.*, a.name AS account_name, a.type AS account_type, a.color AS account_color, a.icon AS account_icon FROM transactions t
+         JOIN accounts a ON a.id = t.account_id WHERE ${where}
          ORDER BY ${sortCol} ${sortDir}, t.id ${sortDir} LIMIT ? OFFSET ?`
       )
       .all(...params, limit, offset) as unknown as TxDbRow[]
@@ -262,6 +285,72 @@ export function registerIpcHandlers(): void {
   })
   handle('tx:restoreDuplicate', (id: number) => {
     getDb().prepare("UPDATE transactions SET status = 'active' WHERE id = ?").run(id)
+  })
+  handle('tx:create', (input: { accountId: number; dateReg: string; description: string; amount: number; categoryId: number | null; notes: string | null }) => {
+    if (!input.dateReg || !input.description.trim() || !Number.isFinite(input.amount) || input.amount === 0) {
+      throw new Error('Compila data, descrizione e un importo diverso da zero.')
+    }
+    const normalized = normalizeDescription(input.description)
+    const res = getDb().prepare(
+      `INSERT INTO transactions (account_id, date_reg, description, description_norm, amount, category_id, notes, hash_dedup, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`
+    ).run(input.accountId, input.dateReg, input.description.trim(), normalized, input.amount, input.categoryId, input.notes, dedupHash(input.accountId, input.dateReg, input.amount, normalized))
+    const row = getDb().prepare('SELECT * FROM transactions WHERE id = ?').get(Number(res.lastInsertRowid)) as unknown as TxDbRow
+    return toTx(row, [])
+  })
+  handle('tx:cardCandidates', (id: number) => {
+    const db = getDb()
+    const parent = db.prepare('SELECT date_reg FROM transactions WHERE id = ?').get(id) as { date_reg: string } | undefined
+    if (!parent) return []
+    const rows = db.prepare(
+      `SELECT t.* FROM transactions t JOIN accounts a ON a.id = t.account_id
+       WHERE a.type = 'credit_card' AND t.status = 'active'
+         AND t.id NOT IN (SELECT card_transaction_id FROM credit_card_links)
+         AND t.date_reg BETWEEN date(?, '-60 days') AND date(?, '+7 days')
+       ORDER BY t.date_reg DESC LIMIT 80`
+    ).all(parent.date_reg, parent.date_reg) as unknown as TxDbRow[]
+    return rows.map((r) => toTx(r, []))
+  })
+  handle('tx:linkedCardTransactions', (id: number) => {
+    const rows = getDb().prepare(
+      `SELECT t.* FROM credit_card_links l JOIN transactions t ON t.id = l.card_transaction_id
+       WHERE l.main_transaction_id = ? ORDER BY t.date_reg DESC`
+    ).all(id) as unknown as TxDbRow[]
+    return rows.map((r) => toTx(r, []))
+  })
+  handle('tx:linkCardTransactions', (mainId: number, cardIds: number[]) => {
+    const db = getDb()
+    transaction(() => {
+      db.prepare('DELETE FROM credit_card_links WHERE main_transaction_id = ?').run(mainId)
+      const insert = db.prepare('INSERT OR IGNORE INTO credit_card_links (main_transaction_id, card_transaction_id) VALUES (?, ?)')
+      for (const cardId of cardIds) insert.run(mainId, cardId)
+      if (cardIds.length > 0) {
+        const transfer = db.prepare("SELECT id FROM categories WHERE type = 'transfer' ORDER BY id LIMIT 1").get() as { id: number } | undefined
+        if (transfer) db.prepare('UPDATE transactions SET category_id = ? WHERE id = ?').run(transfer.id, mainId)
+      }
+    })
+  })
+
+  // ---------- Accounts / opening balances ----------
+  handle('account:list', (): Account[] => {
+    return getDb().prepare(
+        `SELECT id, name, iban, currency, type, color, icon, initial_balance AS initialBalance,
+              initial_balance_date AS initialBalanceDate FROM accounts ORDER BY CASE type WHEN 'main' THEN 0 WHEN 'secondary' THEN 1 ELSE 2 END, name`
+    ).all() as unknown as Account[]
+  })
+  handle('account:create', (input: Omit<Account, 'id'>) => {
+    const res = getDb().prepare(
+      'INSERT INTO accounts (name, iban, currency, type, color, icon, initial_balance, initial_balance_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(input.name.trim(), input.iban || null, input.currency || 'EUR', input.type, input.color || '#0f766e', input.icon || 'landmark', input.initialBalance || 0, input.initialBalanceDate || null)
+    return { ...input, id: Number(res.lastInsertRowid), name: input.name.trim(), iban: input.iban || null }
+  })
+  handle('account:update', (id: number, patch: Partial<Omit<Account, 'id'>>): Account => {
+    return updateAccountRecord(getDb(), id, patch)
+  })
+  handle('account:delete', (id: number) => {
+    const { result, archivedPaths } = deleteAccountRecord(getDb(), id)
+    for (const archivedPath of archivedPaths) if (existsSync(archivedPath)) { try { rmSync(archivedPath) } catch { /* Best effort. */ } }
+    return result
   })
 
   // ---------- Categories ----------
@@ -505,6 +594,8 @@ export function registerIpcHandlers(): void {
     }
   })
   handle('settings:backupNow', () => backupNow())
+  handle('settings:deleteBackup', (file: string) => deleteBackup(file))
+  handle('settings:wipeFinancialData', () => wipeFinancialData())
   handle('settings:get', (key: string) => {
     const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key) as
       | { value: string }
@@ -518,11 +609,11 @@ export function registerIpcHandlers(): void {
   })
   handle('profile:list', () => {
     const rows = getDb()
-      .prepare('SELECT id, name, fingerprint, mapping_json, header_row AS headerRow FROM mapping_profiles')
-      .all() as unknown as { id: number; name: string; fingerprint: string; mapping_json: string; headerRow: number }[]
+      .prepare('SELECT id, name, fingerprint, mapping_json, header_row AS headerRow, account_id AS accountId FROM mapping_profiles')
+      .all() as unknown as { id: number; name: string; fingerprint: string; mapping_json: string; headerRow: number; accountId: number | null }[]
     return rows.map((r) => ({
       id: r.id, name: r.name, fingerprint: r.fingerprint,
-      mapping: JSON.parse(r.mapping_json), headerRow: r.headerRow
+      mapping: JSON.parse(r.mapping_json), headerRow: r.headerRow, accountId: r.accountId
     }))
   })
   handle('profile:delete', (id: number) => {

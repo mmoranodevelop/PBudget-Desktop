@@ -3,7 +3,7 @@
 import * as XLSX from 'xlsx'
 import Papa from 'papaparse'
 import { createHash } from 'crypto'
-import type { ColumnMapping } from '@shared/types'
+import type { ColumnMapping, DateFormat } from '@shared/types'
 
 export type RawCell = string | number | boolean | Date | null | undefined
 export type RawRow = RawCell[]
@@ -71,7 +71,9 @@ export function headerFingerprint(headerRow: RawRow): string {
 
 // ---------- Suggerimento mapping ----------
 
-const COLUMN_PATTERNS: { key: keyof ColumnMapping; patterns: RegExp[] }[] = [
+type MappedColumn = Exclude<keyof ColumnMapping, 'amountMultiplier' | 'dateFormat'>
+
+const COLUMN_PATTERNS: { key: MappedColumn; patterns: RegExp[] }[] = [
   { key: 'dateVal', patterns: [/valuta/i] },
   { key: 'dateReg', patterns: [/data\s*(registrazione|contabile|operazione)?/i, /^date$/i] },
   { key: 'causale', patterns: [/causale/i, /tipo/i] },
@@ -129,7 +131,7 @@ export function suggestMapping(headerRow: RawRow, dataRows: RawRow[]): ColumnMap
 
 // ---------- Normalizzazione valori ----------
 
-export function parseDateValue(v: RawCell): string | null {
+export function parseDateValue(v: RawCell, format: DateFormat = 'auto'): string | null {
   if (v == null || v === '') return null
   if (v instanceof Date) {
     if (isNaN(v.getTime())) return null
@@ -147,7 +149,8 @@ export function parseDateValue(v: RawCell): string | null {
   // dd/mm/yyyy o dd-mm-yyyy o dd.mm.yyyy
   let m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})/)
   if (m) {
-    const [, d, mo, y] = m
+    const [, first, second, y] = m
+    const [d, mo] = format === 'mdy' ? [second, first] : [first, second]
     if (Number(mo) <= 12) return toIso(Number(y), Number(mo), Number(d))
   }
   // yyyy-mm-dd
@@ -159,7 +162,8 @@ export function parseDateValue(v: RawCell): string | null {
   // dd/mm/yy
   m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2})$/)
   if (m) {
-    const [, d, mo, y] = m
+    const [, first, second, y] = m
+    const [d, mo] = format === 'mdy' ? [second, first] : [first, second]
     if (Number(mo) <= 12) return toIso(2000 + Number(y), Number(mo), Number(d))
   }
   return null
@@ -284,7 +288,7 @@ export function normalizeRows(
   for (let i = headerRow + 1; i < rows.length; i++) {
     const raw = rows[i]
     if (!raw || raw.every((c) => c == null || String(c).trim() === '')) continue
-    const dateReg = mapping.dateReg != null ? parseDateValue(raw[mapping.dateReg]) : null
+    const dateReg = mapping.dateReg != null ? parseDateValue(raw[mapping.dateReg], mapping.dateFormat) : null
     let amount: number | null = null
     if (mapping.amount != null) {
       amount = parseAmountValue(raw[mapping.amount])
@@ -293,6 +297,7 @@ export function normalizeRows(
       const exp = mapping.amountOut != null ? parseAmountValue(raw[mapping.amountOut]) : null
       if (inc != null || exp != null) amount = (inc ?? 0) - Math.abs(exp ?? 0)
     }
+    if (amount != null && mapping.amountMultiplier === -1) amount *= -1
     const description =
       mapping.description != null ? String(raw[mapping.description] ?? '').trim() : ''
 
@@ -319,7 +324,7 @@ export function normalizeRows(
     out.push({
       index: i,
       dateReg,
-      dateVal: mapping.dateVal != null ? parseDateValue(raw[mapping.dateVal]) : null,
+      dateVal: mapping.dateVal != null ? parseDateValue(raw[mapping.dateVal], mapping.dateFormat) : null,
       causale,
       description,
       descriptionNorm: normalizeDescription(description),

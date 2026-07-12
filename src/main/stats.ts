@@ -30,12 +30,17 @@ export function dashboardStats(year: number): DashboardStats {
   const ytdExpense = monthlySeries.slice(0, currentMonth).reduce((a, m) => a + m.expense, 0)
 
   const initial = (
-    db.prepare('SELECT COALESCE(SUM(initial_balance), 0) AS b FROM accounts').get() as { b: number }
+    db.prepare("SELECT COALESCE(SUM(initial_balance), 0) AS b FROM accounts WHERE type != 'credit_card'").get() as { b: number }
   ).b
+  const startingBalanceDate = (
+    db.prepare("SELECT MIN(initial_balance_date) AS d FROM accounts WHERE type != 'credit_card' AND initial_balance_date IS NOT NULL").get() as { d: string | null }
+  ).d
   const totalAll = (
     db
       .prepare(
-        `SELECT COALESCE(SUM(amount), 0) AS s FROM transactions WHERE status = 'active'`
+        `SELECT COALESCE(SUM(t.amount), 0) AS s FROM transactions t JOIN accounts a ON a.id = t.account_id
+         WHERE t.status = 'active' AND a.type != 'credit_card'
+           AND t.date_reg >= COALESCE(a.initial_balance_date, '0001-01-01')`
       )
       .get() as { s: number }
   ).s
@@ -45,16 +50,18 @@ export function dashboardStats(year: number): DashboardStats {
   const beforeYear = (
     db
       .prepare(
-        `SELECT COALESCE(SUM(amount), 0) AS s FROM transactions
-         WHERE status = 'active' AND date_reg < ?`
+        `SELECT COALESCE(SUM(t.amount), 0) AS s FROM transactions t JOIN accounts a ON a.id = t.account_id
+         WHERE t.status = 'active' AND a.type != 'credit_card' AND t.date_reg < ?
+           AND t.date_reg >= COALESCE(a.initial_balance_date, '0001-01-01')`
       )
       .get(`${year}-01-01`) as { s: number }
   ).s
   const daily = db
     .prepare(
-      `SELECT date_reg AS date, SUM(amount) AS delta FROM transactions
-       WHERE status = 'active' AND strftime('%Y', date_reg) = ?
-       GROUP BY date_reg ORDER BY date_reg`
+      `SELECT t.date_reg AS date, SUM(t.amount) AS delta FROM transactions t JOIN accounts a ON a.id = t.account_id
+       WHERE t.status = 'active' AND a.type != 'credit_card' AND strftime('%Y', t.date_reg) = ?
+         AND t.date_reg >= COALESCE(a.initial_balance_date, '0001-01-01')
+       GROUP BY t.date_reg ORDER BY t.date_reg`
     )
     .all(String(year)) as unknown as { date: string; delta: number }[]
   let running = initial + beforeYear
@@ -99,6 +106,8 @@ export function dashboardStats(year: number): DashboardStats {
     ytdExpense,
     savingsRate: ytdIncome > 0 ? (ytdIncome - ytdExpense) / ytdIncome : 0,
     balance: Math.round(balance * 100) / 100,
+    startingBalance: Math.round(initial * 100) / 100,
+    startingBalanceDate,
     monthlySeries,
     balanceSeries,
     topCategories,

@@ -4,5 +4,6 @@ dist/
 .claude/
 *.log
 .DS_Store
-.idea/
 data/
+.agents/
+.idea/
