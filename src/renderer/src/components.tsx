@@ -134,8 +134,8 @@ export function BudgetBar({ actual, budget }: { actual: number; budget: number }
   return (
     <div className="h-2 w-36 overflow-hidden rounded-full bg-muted">
       <div
-        className="h-full rounded-full transition-all"
-        style={{ width: `${Math.min(100, pct)}%`, backgroundColor: color }}
+        className="h-full rounded-full transition-transform duration-300 ease-[var(--ease-out)]"
+        style={{ transform: `scaleX(${Math.min(100, pct) / 100})`, transformOrigin: 'left', backgroundColor: color }}
       />
     </div>
   )
