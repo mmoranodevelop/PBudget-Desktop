@@ -8,8 +8,8 @@ import {
   Tags, Upload, Wallet, Loader2, FileSpreadsheet
 } from 'lucide-react'
 import type { DashboardStats, GDriveFile, ImportAnalysis, ImportFileInfo } from '@shared/types'
-import { api, fmtEur, MONTH_SHORT } from '../api'
-import { CHART, CHART_TOOLTIP_STYLE, ModalShell } from '../components'
+import { api, fmtEur, MONTH_SHORT } from '@/api'
+import { CHART, CHART_TOOLTIP_STYLE, ModalShell } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -18,24 +18,37 @@ import {
 } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import type { Page } from '../App'
+import type { Page } from '@/App'
 
 function KpiCard({
-  label, value, sub, icon: Icon, tone
+  label, value, sub, icon: Icon, tone, index
 }: {
   label: string
   value: string
   sub?: string
   icon: React.ComponentType<{ className?: string }>
   tone?: 'income' | 'expense' | 'neutral'
+  index: number
 }): JSX.Element {
   return (
-    <Card className="gap-2 py-4">
+    <Card
+      className="metric-card group relative gap-3 overflow-hidden py-5 transition-[transform,box-shadow] motion-safe:hover:-translate-y-0.5"
+      style={{ animationDelay: `${index * 45}ms` }}
+    >
       <CardHeader className="flex-row items-center justify-between px-4">
         <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {label}
         </CardTitle>
-        <Icon className="size-4 text-muted-foreground" />
+        <div
+          className={cn(
+            'flex size-9 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105',
+            tone === 'income' && 'bg-chart-income/10 text-chart-income',
+            tone === 'expense' && 'bg-chart-expense/10 text-chart-expense',
+            !tone && 'bg-primary/10 text-primary'
+          )}
+        >
+          <Icon className="size-[18px]" />
+        </div>
       </CardHeader>
       <CardContent className="px-4">
         <div
@@ -124,10 +137,11 @@ export default function Dashboard({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-border/80 bg-card/70 p-5 shadow-sm shadow-emerald-950/[0.025] backdrop-blur-sm">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Panoramica dell'anno {year}</p>
+          <p className="mb-1 text-xs font-semibold tracking-[0.12em] text-primary uppercase">Panoramica finanziaria</p>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">La tua situazione finanziaria per l'anno {year}.</p>
         </div>
         <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
           <SelectTrigger size="sm" className="w-24">
@@ -175,13 +189,14 @@ export default function Dashboard({
       )}
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <KpiCard label="Saldo" value={fmtEur(stats.balance)} icon={Wallet} />
+        <KpiCard label="Saldo" value={fmtEur(stats.balance)} icon={Wallet} index={0} />
         <KpiCard
           label={`Entrate ${monthName}`}
           value={fmtEur(stats.monthIncome)}
           sub={`YTD ${fmtEur(stats.ytdIncome)}`}
           icon={ArrowUpRight}
           tone="income"
+          index={1}
         />
         <KpiCard
           label={`Uscite ${monthName}`}
@@ -189,6 +204,7 @@ export default function Dashboard({
           sub={`YTD ${fmtEur(stats.ytdExpense)}`}
           icon={ArrowDownRight}
           tone="expense"
+          index={2}
         />
         <KpiCard
           label="Risparmio YTD"
@@ -196,6 +212,7 @@ export default function Dashboard({
           sub={`${Math.round(stats.savingsRate * 100)}% delle entrate`}
           icon={PiggyBank}
           tone={savings >= 0 ? 'income' : 'expense'}
+          index={3}
         />
       </div>
 

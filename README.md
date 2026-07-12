@@ -7,7 +7,7 @@ scenari what-if. Piano di sviluppo completo in [PIANO_SVILUPPO.md](PIANO_SVILUPP
 ## Stack
 
 - **Electron 37 + TypeScript** (main process con logica dati, renderer isolato via IPC tipizzato)
-- **React 18 + shadcn/ui (new-york, base neutral) + Tailwind CSS v4 + lucide-react** per la UI
+- **React 18 + Radix UI + Tailwind CSS v4 + lucide-react** per la UI
 - **Recharts** per i grafici (palette validata per accessibilità/CVD su tema scuro)
 - **SQLite** via `node:sqlite` (incluso nel Node di Electron, nessuna dipendenza nativa da compilare)
 - **SheetJS + PapaParse** per il parsing di xls/xlsx/csv

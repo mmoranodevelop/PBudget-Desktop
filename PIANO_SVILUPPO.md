@@ -14,7 +14,7 @@ Restano rifiniture della tabella movimenti, alcune feature avanzate e l'intera *
 
 **Deviazioni consapevoli dallo stack pianificato** (motivate in CHECKLIST.md):
 `node:sqlite` al posto di better-sqlite3 + Drizzle (niente dipendenze native, ma **niente migrazioni versionate** — da introdurre prima della distribuzione); tabella custom su
-shadcn `Table` al posto di TanStack Table; stato React locale al posto di Zustand + TanStack Query;
+tabella custom dell'app al posto di TanStack Table; stato React locale al posto di Zustand + TanStack Query;
 Recharts al posto di ECharts. Le sezioni seguenti restano il riferimento di design; dove il
 realizzato diverge è annotato inline.
 
@@ -41,7 +41,7 @@ realizzato diverge è annotato inline.
 
 - **Runtime:** Electron (ultima LTS) + TypeScript strict
 - **Build:** electron-vite + electron-builder (NSIS per Windows, DMG per macOS)
-- **UI:** React 18 + Tailwind CSS + shadcn/ui
+- **UI:** React 18 + Tailwind CSS + Radix UI
 - **Tabelle:** TanStack Table (sorting, filtering, grouping, virtualizzazione)
 - **Grafici:** Apache ECharts (o Recharts se bastano grafici semplici)
 - **Stato:** Zustand + TanStack Query verso IPC
