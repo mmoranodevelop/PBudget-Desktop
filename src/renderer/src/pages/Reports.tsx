@@ -5,7 +5,7 @@ import {
 import { TrendingDown, TrendingUp } from 'lucide-react'
 import type { Account, YearReport } from '@shared/types'
 import { api, fmtEur, MONTH_SHORT } from '@/api'
-import { CHART, CHART_TOOLTIP_STYLE } from '@/components'
+import { AccountAvatarSwitcher, CHART, CHART_TOOLTIP_STYLE } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
@@ -82,10 +82,7 @@ export default function Reports(): JSX.Element {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={accountId != null ? String(accountId) : ''} onValueChange={(v) => setAccountId(Number(v))}>
-            <SelectTrigger size="sm" className="w-52"><SelectValue placeholder="Scegli conto o carta" /></SelectTrigger>
-            <SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={String(a.id)}>{a.type === 'credit_card' ? 'Carta · ' : a.type === 'secondary' ? 'Conto secondario · ' : 'Conto principale · '}{a.name}</SelectItem>)}</SelectContent>
-          </Select>
+          <AccountAvatarSwitcher accounts={accounts} value={accountId} onChange={setAccountId} />
           <Tabs value={metric} onValueChange={(v) => setMetric(v as 'expense' | 'income')}>
             <TabsList>
               <TabsTrigger value="expense">Uscite</TabsTrigger>

@@ -35,6 +35,20 @@ function handle(channel: string, fn: (...args: never[]) => unknown): void {
   })
 }
 
+function validateCategoryIdentity(name: string, parentId: number | null, excludeId?: number): string {
+  const normalized = name.trim()
+  if (!normalized) throw new Error('Il nome della categoria è obbligatorio')
+  const duplicate = getDb().prepare(
+    `SELECT id FROM categories
+     WHERE lower(trim(name)) = lower(?)
+       AND COALESCE(parent_id, -1) = COALESCE(?, -1)
+       AND id != COALESCE(?, -1)
+     LIMIT 1`
+  ).get(normalized, parentId, excludeId ?? null) as { id: number } | undefined
+  if (duplicate) throw new Error('Esiste già una categoria con questo nome nello stesso livello')
+  return normalized
+}
+
 interface TxDbRow {
   id: number
   account_id: number
@@ -380,12 +394,13 @@ export function registerIpcHandlers(): void {
   })
 
   handle('cat:create', (c: Omit<Category, 'id' | 'isSystem'>) => {
+    const name = validateCategoryIdentity(c.name, c.parentId ?? null)
     const res = getDb()
       .prepare(
         'INSERT INTO categories (name, color, type, parent_id, is_system, sort_order) VALUES (?, ?, ?, ?, 0, ?)'
       )
-      .run(c.name, c.color, c.type, c.parentId, c.sortOrder ?? 999)
-    return { ...c, id: Number(res.lastInsertRowid), isSystem: false }
+      .run(name, c.color, c.type, c.parentId, c.sortOrder ?? 999)
+    return { ...c, name, id: Number(res.lastInsertRowid), isSystem: false }
   })
 
   handle('cat:update', (id: number, patch: Partial<Omit<Category, 'id' | 'isSystem'>>) => {
@@ -394,10 +409,15 @@ export function registerIpcHandlers(): void {
       | { name: string; color: string; type: string; parent_id: number | null; sort_order: number }
       | undefined
     if (!cur) throw new Error('Categoria non trovata')
+    const name = validateCategoryIdentity(
+      patch.name ?? cur.name,
+      patch.parentId !== undefined ? patch.parentId : cur.parent_id,
+      id
+    )
     db.prepare(
       'UPDATE categories SET name = ?, color = ?, type = ?, parent_id = ?, sort_order = ? WHERE id = ?'
     ).run(
-      patch.name ?? cur.name,
+      name,
       patch.color ?? cur.color,
       patch.type ?? cur.type,
       patch.parentId !== undefined ? patch.parentId : cur.parent_id,

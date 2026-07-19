@@ -173,7 +173,7 @@ export default function Settings(): JSX.Element {
               <TableCell className="font-medium">{profile.name}</TableCell>
               <TableCell className="max-w-52 truncate text-xs text-muted-foreground" title={profile.fingerprint}>{profile.fingerprint}</TableCell>
               <TableCell className="text-xs text-muted-foreground">{accounts.find((account) => account.id === profile.accountId)?.name ?? 'Qualsiasi conto'}</TableCell>
-              <TableCell className="w-10"><Button variant="ghost" size="icon-sm" aria-label={`Elimina ${profile.name}`} onClick={() => deleteProfile(profile)}><Trash2 /></Button></TableCell>
+              <TableCell className="w-10"><Button variant="ghost" size="icon-sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label={`Elimina ${profile.name}`} onClick={() => deleteProfile(profile)}><Trash2 /></Button></TableCell>
             </TableRow>)}</TableBody></Table> : <p className="py-4 text-sm text-muted-foreground">I profili verranno creati durante gli import.</p>}
           </CardContent>
         </Card>

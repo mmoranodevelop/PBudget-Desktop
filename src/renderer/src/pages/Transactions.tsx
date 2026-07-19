@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowDown, ArrowUp, ChevronLeft, ChevronRight, CreditCard, Download, RotateCcw, Search,
-  StickyNote, Tag as TagIcon, X, Wand2
+  StickyNote, Tag as TagIcon, X, Wand2, LoaderCircle
 } from 'lucide-react'
 import type { Account, Category, Tag, Transaction, TransactionFilter, TransactionListResult } from '@shared/types'
 import { api, fmtDate, fmtEur } from '@/api'
@@ -58,9 +58,17 @@ export default function Transactions({
   const [cardCandidates, setCardCandidates] = useState<Transaction[]>([])
   const [linkedCardIds, setLinkedCardIds] = useState<Set<number>>(new Set())
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const load = useCallback(() => {
-    api.txList(filter).then(setData).catch(() => undefined)
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      setData(await api.txList(filter))
+    } catch {
+      // Keep the previous result visible if a refresh fails.
+    } finally {
+      setLoading(false)
+    }
   }, [filter])
 
   useEffect(() => {
@@ -199,6 +207,14 @@ export default function Transactions({
 
   return (
     <div className="space-y-4">
+      {loading && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 backdrop-blur-sm" role="status" aria-live="polite">
+          <div className="flex flex-col items-center gap-3 text-sm font-medium text-muted-foreground">
+            <LoaderCircle className="size-8 animate-spin text-primary" />
+            Caricamento movimenti…
+          </div>
+        </div>
+      )}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Movimenti</h1>
@@ -327,8 +343,8 @@ export default function Transactions({
         </div>
       )}
 
-      <div className="max-h-[calc(100vh-320px)] overflow-auto rounded-md border">
-        <Table>
+      <div className="min-w-0 max-h-[calc(100vh-320px)] overflow-x-auto overflow-y-auto rounded-md border" aria-label="Tabella movimenti, scorri orizzontalmente per visualizzare tutte le colonne">
+        <Table className="min-w-[1060px]" containerClassName="min-w-[1060px] overflow-visible">
           <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow>
               <TableHead className="w-8">

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { CalendarRange, Copy, Plus, Trash2 } from 'lucide-react'
 import type { Account, BudgetVsActual, Category } from '@shared/types'
 import { api, fmtEur, MONTH_NAMES, MONTH_SHORT } from '@/api'
-import { BudgetBar, CategorySelect, ModalShell } from '@/components'
+import { AccountAvatarSwitcher, BudgetBar, CategorySelect, ModalShell } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +24,9 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
   const [rows, setRows] = useState<BudgetVsActual[]>([])
   const [addCat, setAddCat] = useState<number | null>(null)
   const [addAmount, setAddAmount] = useState('')
+  const [duplicateCategory, setDuplicateCategory] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [monthlyValues, setMonthlyValues] = useState<Record<number, string>>({})
   const [detail, setDetail] = useState<BudgetVsActual | null>(null)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -50,9 +53,18 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
     const amount = Number(addAmount.replace(',', '.'))
     if (addCat == null || !isFinite(amount) || amount <= 0) return
     if (accountId == null) return
+    const existing = rows.find((row) => row.categoryId === addCat)
+    if (existing) {
+      const message = `Esiste già un budget per “${existing.categoryName}”. Usa “Mensilizza” nella relativa riga per modificarlo.`
+      setDuplicateCategory(message)
+      toast.error('Budget già presente', message)
+      return
+    }
     await api.budgetSet(year, accountId, addCat, null, amount)
     setAddCat(null)
     setAddAmount('')
+    setDuplicateCategory(null)
+    setCreateOpen(false)
     load()
     toast.success('Budget aggiunto')
   }
@@ -88,6 +100,21 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
     toast.success('Budget eliminato')
   }
 
+  const openMonthly = (row: BudgetVsActual): void => {
+    setDetail(row)
+    setMonthlyValues(Object.fromEntries(row.monthly.map((m) => [m.month, m.budget.toFixed(2)])))
+  }
+
+  const saveMonthly = async (): Promise<void> => {
+    if (!detail || accountId == null) return
+    const values = detail.monthly.map((m) => ({ month: m.month, amount: Number((monthlyValues[m.month] ?? String(m.budget)).replace(',', '.')) }))
+    if (values.some(({ amount }) => !isFinite(amount) || amount < 0)) return
+    await Promise.all(values.map(({ month: m, amount }) => api.budgetSet(year, accountId, detail.categoryId, m, amount)))
+    setDetail(null)
+    load()
+    toast.success('Budget mensile aggiornato')
+  }
+
   if (loading) return <div className="space-y-4"><Skeleton className="h-16 w-72" /><div className="grid grid-cols-3 gap-4"><Skeleton className="h-28" /><Skeleton className="h-28" /><Skeleton className="h-28" /></div><Skeleton className="h-80 w-full" /></div>
 
   const totalBudget = rows.reduce((a, r) => a + r.budgetYear, 0)
@@ -104,10 +131,7 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
           </p>
         </div>
         <div className="flex gap-2">
-          <Select value={accountId != null ? String(accountId) : ''} onValueChange={(v) => setAccountId(Number(v))}>
-            <SelectTrigger size="sm" className="w-52"><SelectValue placeholder="Scegli conto o carta" /></SelectTrigger>
-            <SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={String(a.id)}>{a.type === 'credit_card' ? 'Carta · ' : a.type === 'secondary' ? 'Conto secondario · ' : 'Conto principale · '}{a.name}</SelectItem>)}</SelectContent>
-          </Select>
+          <AccountAvatarSwitcher accounts={accounts} value={accountId} onChange={setAccountId} />
           <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
             <SelectTrigger size="sm" className="w-32">
               <SelectValue />
@@ -182,20 +206,7 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <CategorySelect
-          categories={categories.filter((c) => c.type === 'expense')}
-          value={addCat}
-          onChange={setAddCat}
-          emptyLabel="Scegli categoria o cluster"
-        />
-        <Input
-          placeholder="Budget annuale €"
-          className="h-8 w-36"
-          value={addAmount}
-          onChange={(e) => setAddAmount(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && addLine()}
-        />
-        <Button size="sm" onClick={addLine} disabled={addCat == null || !addAmount}>
+        <Button size="sm" onClick={() => { setDuplicateCategory(null); setCreateOpen(true) }}>
           <Plus className="size-4" />
           Aggiungi budget
         </Button>
@@ -257,9 +268,12 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
                   <BudgetBar actual={r.actualYear} budget={r.budgetYear} />
                 </TableCell>
                 <TableCell>
-                  <Button variant="outline" size="sm" onClick={() => setDetail(r)}>
+                  <Button variant="outline" size="sm" onClick={() => openMonthly(r)}>
                     <CalendarRange className="size-3.5" />
                     Mensilizza
+                  </Button>
+                  <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive" onClick={() => removeLine(r.categoryId)} aria-label={`Elimina budget ${r.categoryName}`}>
+                    <Trash2 className="size-4" />
                   </Button>
                 </TableCell>
               </TableRow>
@@ -289,19 +303,26 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
                 <Label className="text-xs text-muted-foreground">{MONTH_NAMES[m.month - 1]}</Label>
                 <Input
                   className="h-8"
-                  defaultValue={m.budget.toFixed(2)}
-                  onBlur={(e) => setMonthly(detail.categoryId, m.month, e.target.value)}
+                  value={monthlyValues[m.month] ?? ''}
+                  onChange={(e) => setMonthlyValues((values) => ({ ...values, [m.month]: e.target.value }))}
                 />
                 <p className="text-xs text-muted-foreground">speso: {fmtEur(m.actual)}</p>
               </div>
             ))}
           </div>
-          <div className="flex justify-between pt-2">
-            <Button variant="destructive" onClick={() => removeLine(detail.categoryId)}>
-              <Trash2 className="size-4" />
-              Rimuovi budget
-            </Button>
-            <Button onClick={() => setDetail(null)}>Chiudi</Button>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setDetail(null)}>Chiudi</Button>
+            <Button onClick={saveMonthly}>Salva</Button>
+          </div>
+        </ModalShell>
+      )}
+      {createOpen && (
+        <ModalShell title="Aggiungi budget" description="Definisci il budget annuale per una categoria o un cluster." onClose={() => setCreateOpen(false)}>
+          <div className="space-y-4">
+            <div className="space-y-1.5"><Label>Categoria o cluster</Label><CategorySelect categories={categories.filter((c) => c.type === 'expense')} value={addCat} onChange={(categoryId) => { setAddCat(categoryId); setDuplicateCategory(null) }} emptyLabel="Scegli categoria o cluster" className="w-full" /></div>
+            <div className="space-y-1.5"><Label>Budget annuale (€)</Label><Input autoFocus inputMode="decimal" value={addAmount} onChange={(e) => setAddAmount(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLine()} /></div>
+            {duplicateCategory && <p className="text-sm text-destructive" role="alert">{duplicateCategory}</p>}
+            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setCreateOpen(false)}>Annulla</Button><Button onClick={addLine} disabled={addCat == null || !addAmount}>Crea budget</Button></div>
           </div>
         </ModalShell>
       )}

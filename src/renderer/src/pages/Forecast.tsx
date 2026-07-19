@@ -3,10 +3,10 @@ import {
   ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
   ReferenceLine
 } from 'recharts'
-import { CalendarClock, Plus, Repeat, X } from 'lucide-react'
+import { CalendarClock, Pencil, Plus, Repeat, Trash2 } from 'lucide-react'
 import type { Account, ForecastResult, ForecastScenario, ScenarioAdjustment } from '@shared/types'
 import { api, fmtEur, fmtDate, MONTH_NAMES } from '@/api'
-import { CHART, CHART_TOOLTIP_STYLE } from '@/components'
+import { AccountAvatarSwitcher, CHART, CHART_TOOLTIP_STYLE, ModalShell } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,6 +30,7 @@ export default function Forecast(): JSX.Element {
   const [amount, setAmount] = useState('')
   const [fromMonth, setFromMonth] = useState(now.getMonth() + 1)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [scenarioOpen, setScenarioOpen] = useState(false)
 
   useEffect(() => {
     api.accountList().then((list) => {
@@ -66,10 +67,15 @@ export default function Forecast(): JSX.Element {
     }
     setLabel('')
     setAmount('')
+    setScenarioOpen(false)
   }
 
   const editAdjustment = (scenario: ForecastScenario): void => {
-    setEditingId(scenario.id); setLabel(scenario.label); setAmount(String(scenario.monthlyAmount)); setFromMonth(scenario.fromMonth)
+    setEditingId(scenario.id); setLabel(scenario.label); setAmount(String(scenario.monthlyAmount)); setFromMonth(scenario.fromMonth); setScenarioOpen(true)
+  }
+
+  const openNewScenario = (): void => {
+    setEditingId(null); setLabel(''); setAmount(''); setFromMonth(now.getMonth() + 1); setScenarioOpen(true)
   }
 
   const deleteAdjustment = async (id: number): Promise<void> => {
@@ -102,7 +108,7 @@ export default function Forecast(): JSX.Element {
           Proiezione basata sui movimenti ricorrenti rilevati e sulla media delle spese variabili degli
           ultimi 3 mesi.
         </p></div>
-        <div className="flex gap-2"><Select value={accountId != null ? String(accountId) : ''} onValueChange={(v) => setAccountId(Number(v))}><SelectTrigger size="sm" className="w-52"><SelectValue placeholder="Scegli conto o carta" /></SelectTrigger><SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={String(a.id)}>{a.type === 'credit_card' ? 'Carta · ' : a.type === 'secondary' ? 'Conto secondario · ' : 'Conto principale · '}{a.name}</SelectItem>)}</SelectContent></Select><Select value={String(year)} onValueChange={(v) => setYear(Number(v))}><SelectTrigger size="sm" className="w-24"><SelectValue /></SelectTrigger><SelectContent>{[0, 1, 2, 3].map((d) => <SelectItem key={d} value={String(now.getFullYear() - d)}>{now.getFullYear() - d}</SelectItem>)}</SelectContent></Select></div>
+        <div className="flex flex-wrap gap-2"><AccountAvatarSwitcher accounts={accounts} value={accountId} onChange={setAccountId} /><Select value={String(year)} onValueChange={(v) => setYear(Number(v))}><SelectTrigger size="sm" className="w-24"><SelectValue /></SelectTrigger><SelectContent>{[0, 1, 2, 3].map((d) => <SelectItem key={d} value={String(now.getFullYear() - d)}>{now.getFullYear() - d}</SelectItem>)}</SelectContent></Select></div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
@@ -203,18 +209,19 @@ export default function Forecast(): JSX.Element {
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
-          <CardHeader>
+          <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-sm">
               <CalendarClock className="size-4" />
               Simula uno scenario
             </CardTitle>
+            <Button size="sm" onClick={openNewScenario}><Plus className="size-4" />Aggiungi</Button>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-xs text-muted-foreground">
               Aggiungi variazioni mensili: ad esempio -200 per una nuova spesa fissa, +150 per
               un'entrata extra.
             </p>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="hidden">
               <Input
                 placeholder="Descrizione (es. Rata auto)"
                 className="h-8 w-44"
@@ -263,13 +270,14 @@ export default function Forecast(): JSX.Element {
                         da {MONTH_NAMES[a.fromMonth - 1]}
                       </TableCell>
                       <TableCell className="w-10">
-                        <Button variant="ghost" size="sm" onClick={() => editAdjustment(a)}>Modifica</Button>
+                        <Button variant="ghost" size="icon-sm" onClick={() => editAdjustment(a)} aria-label={`Modifica ${a.label}`}><Pencil className="size-4" /></Button>
                         <Button
                           variant="ghost"
                           size="icon-sm"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                           onClick={() => deleteAdjustment(a.id)}
                         >
-                          <X className="size-4" />
+                          <Trash2 className="size-4" />
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -333,6 +341,16 @@ export default function Forecast(): JSX.Element {
           </CardContent>
         </Card>
       </div>
+      {scenarioOpen && (
+        <ModalShell title={editingId != null ? 'Modifica proiezione' : 'Nuova proiezione'} description="Inserisci una variazione mensile da applicare allo scenario." onClose={() => setScenarioOpen(false)}>
+          <div className="space-y-4">
+            <div className="space-y-1.5"><label className="text-sm font-medium">Descrizione</label><Input autoFocus placeholder="Es. Rata auto" value={label} onChange={(e) => setLabel(e.target.value)} /></div>
+            <div className="space-y-1.5"><label className="text-sm font-medium">Importo mensile (€)</label><Input inputMode="decimal" placeholder="Es. -200" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+            <div className="space-y-1.5"><label className="text-sm font-medium">Da quando</label><Select value={String(fromMonth)} onValueChange={(v) => setFromMonth(Number(v))}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{MONTH_NAMES.map((m, i) => <SelectItem key={i} value={String(i + 1)}>Da {m}</SelectItem>)}</SelectContent></Select></div>
+            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setScenarioOpen(false)}>Annulla</Button><Button onClick={addAdjustment} disabled={!label.trim() || !amount.trim()}>{editingId != null ? 'Salva' : 'Crea proiezione'}</Button></div>
+          </div>
+        </ModalShell>
+      )}
     </div>
   )
 }
