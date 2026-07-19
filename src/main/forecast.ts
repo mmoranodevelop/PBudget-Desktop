@@ -58,7 +58,7 @@ export function detectRecurring(txs: TxRow[]): RecurringItem[] {
   return out.sort((a, b) => Math.abs(b.avgAmount) - Math.abs(a.avgAmount))
 }
 
-export function forecast(year: number, adjustments: ScenarioAdjustment[]): ForecastResult {
+export function forecast(year: number, accountId: number, adjustments: ScenarioAdjustment[]): ForecastResult {
   const db = getDb()
   const now = new Date()
   const currentMonth = year === now.getFullYear() ? now.getMonth() + 1 : 12
@@ -69,11 +69,11 @@ export function forecast(year: number, adjustments: ScenarioAdjustment[]): Forec
     .prepare(
       `SELECT t.date_reg, t.amount, t.merchant, t.description_norm, c.name AS category_name
        FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
-       WHERE t.status = 'active' AND (c.type IS NULL OR c.type != 'transfer')
+       WHERE t.status = 'active' AND t.account_id = ? AND (c.type IS NULL OR c.type != 'transfer')
          AND t.date_reg >= date('now', '-12 months')
        ORDER BY t.date_reg`
     )
-    .all() as unknown as TxRow[]
+    .all(accountId) as unknown as TxRow[]
 
   const recurring = detectRecurring(txs)
   const recurringKeys = new Set(recurring.map((r) => r.key))
@@ -119,21 +119,21 @@ export function forecast(year: number, adjustments: ScenarioAdjustment[]): Forec
               SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS income,
               SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS expense
        FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
-       WHERE t.status = 'active' AND (c.type IS NULL OR c.type != 'transfer')
+       WHERE t.status = 'active' AND t.account_id = ? AND (c.type IS NULL OR c.type != 'transfer')
          AND strftime('%Y', t.date_reg) = ?
        GROUP BY month`
     )
-    .all(String(year)) as unknown as { month: number; income: number; expense: number }[]
+    .all(accountId, String(year)) as unknown as { month: number; income: number; expense: number }[]
 
   const initial = (
-    db.prepare('SELECT COALESCE(SUM(initial_balance), 0) AS b FROM accounts').get() as { b: number }
+    db.prepare('SELECT COALESCE(initial_balance, 0) AS b FROM accounts WHERE id = ?').get(accountId) as { b: number }
   ).b
   const beforeYear = (
     db
       .prepare(
-        `SELECT COALESCE(SUM(amount), 0) AS s FROM transactions WHERE status = 'active' AND date_reg < ?`
+        `SELECT COALESCE(SUM(amount), 0) AS s FROM transactions WHERE status = 'active' AND account_id = ? AND date_reg < ?`
       )
-      .get(`${year}-01-01`) as { s: number }
+      .get(accountId, `${year}-01-01`) as { s: number }
   ).s
 
   let balance = initial + beforeYear

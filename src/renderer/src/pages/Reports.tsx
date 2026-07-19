@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
 } from 'recharts'
 import { TrendingDown, TrendingUp } from 'lucide-react'
-import type { YearReport } from '@shared/types'
+import type { Account, YearReport } from '@shared/types'
 import { api, fmtEur, MONTH_SHORT } from '@/api'
 import { CHART, CHART_TOOLTIP_STYLE } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -23,15 +23,25 @@ export default function Reports(): JSX.Element {
   const [current, setCurrent] = useState<YearReport | null>(null)
   const [previous, setPrevious] = useState<YearReport | null>(null)
   const [metric, setMetric] = useState<'expense' | 'income'>('expense')
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [accountId, setAccountId] = useState<number | null>(null)
 
   useEffect(() => {
-    Promise.all([api.reportYear(year), api.reportYear(year - 1)])
+    api.accountList().then((list) => {
+      setAccounts(list)
+      setAccountId((id) => id ?? list.find((a) => a.type === 'main')?.id ?? list[0]?.id ?? null)
+    }).catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    if (accountId == null) return
+    Promise.all([api.reportYear(year, accountId), api.reportYear(year - 1, accountId)])
       .then(([c, p]) => {
         setCurrent(c)
         setPrevious(p)
       })
       .catch(() => undefined)
-  }, [year])
+  }, [year, accountId])
 
   if (!current || !previous) {
     return <div className="space-y-4"><Skeleton className="h-16 w-64" /><div className="grid grid-cols-3 gap-4">{Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-28" />)}</div><Skeleton className="h-80 w-full" /></div>
@@ -72,6 +82,10 @@ export default function Reports(): JSX.Element {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Select value={accountId != null ? String(accountId) : ''} onValueChange={(v) => setAccountId(Number(v))}>
+            <SelectTrigger size="sm" className="w-52"><SelectValue placeholder="Scegli conto o carta" /></SelectTrigger>
+            <SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={String(a.id)}>{a.type === 'credit_card' ? 'Carta · ' : a.type === 'secondary' ? 'Conto secondario · ' : 'Conto principale · '}{a.name}</SelectItem>)}</SelectContent>
+          </Select>
           <Tabs value={metric} onValueChange={(v) => setMetric(v as 'expense' | 'income')}>
             <TabsList>
               <TabsTrigger value="expense">Uscite</TabsTrigger>

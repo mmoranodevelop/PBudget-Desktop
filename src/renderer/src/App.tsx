@@ -105,7 +105,7 @@ export default function App(): JSX.Element {
         </div>
 
         <div className="flex-1" />
-        <div className={cn('rounded-xl border border-sidebar-border bg-card/70 p-3', sidebarCollapsed && 'border-0 bg-transparent p-0')}>
+        <div className={cn('flex flex-col items-center rounded-xl border border-sidebar-border bg-card/70 p-3 text-center', sidebarCollapsed && 'border-0 bg-transparent p-0')}>
           <SidebarMascot collapsed={sidebarCollapsed} />
           {!sidebarCollapsed && <p className="mb-2 text-xs font-medium text-muted-foreground">Hai un nuovo estratto conto?</p>}
           <Button onClick={startImportFromDialog} className="w-full" title="Importa file">

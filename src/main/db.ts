@@ -119,11 +119,21 @@ CREATE TABLE IF NOT EXISTS rules (
 
 CREATE TABLE IF NOT EXISTS budget_lines (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL DEFAULT 1 REFERENCES accounts(id) ON DELETE CASCADE,
   year INTEGER NOT NULL,
   category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
   month INTEGER, -- NULL = annuale
   amount REAL NOT NULL DEFAULT 0,
-  UNIQUE (year, category_id, month)
+  UNIQUE (account_id, year, category_id, month)
+);
+
+CREATE TABLE IF NOT EXISTS forecast_scenarios (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  year INTEGER NOT NULL,
+  label TEXT NOT NULL,
+  monthly_amount REAL NOT NULL,
+  from_month INTEGER NOT NULL CHECK (from_month BETWEEN 1 AND 12)
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -159,6 +169,22 @@ function migrateSchema(database: DatabaseSync): void {
   if (!accountColumns.has('initial_balance_date')) database.exec('ALTER TABLE accounts ADD COLUMN initial_balance_date TEXT')
   const profileColumns = columns('mapping_profiles')
   if (!profileColumns.has('account_id')) database.exec('ALTER TABLE mapping_profiles ADD COLUMN account_id INTEGER')
+  const budgetColumns = columns('budget_lines')
+  if (!budgetColumns.has('account_id')) {
+    database.exec(`ALTER TABLE budget_lines RENAME TO budget_lines_legacy;
+      CREATE TABLE budget_lines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id INTEGER NOT NULL DEFAULT 1 REFERENCES accounts(id) ON DELETE CASCADE,
+        year INTEGER NOT NULL,
+        category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+        month INTEGER,
+        amount REAL NOT NULL DEFAULT 0,
+        UNIQUE (account_id, year, category_id, month)
+      );
+      INSERT INTO budget_lines (id, account_id, year, category_id, month, amount)
+        SELECT id, 1, year, category_id, month, amount FROM budget_lines_legacy;
+      DROP TABLE budget_lines_legacy;`)
+  }
 }
 
 export function getDb(): DatabaseSync {

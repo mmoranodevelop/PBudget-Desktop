@@ -4,7 +4,7 @@ import {
   ReferenceLine
 } from 'recharts'
 import { CalendarClock, Plus, Repeat, X } from 'lucide-react'
-import type { ForecastResult, ScenarioAdjustment } from '@shared/types'
+import type { Account, ForecastResult, ForecastScenario, ScenarioAdjustment } from '@shared/types'
 import { api, fmtEur, fmtDate, MONTH_NAMES } from '@/api'
 import { CHART, CHART_TOOLTIP_STYLE } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,30 +21,61 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 export default function Forecast(): JSX.Element {
   const now = new Date()
-  const [year] = useState(now.getFullYear())
-  const [adjustments, setAdjustments] = useState<ScenarioAdjustment[]>([])
+  const [year, setYear] = useState(now.getFullYear())
+  const [adjustments, setAdjustments] = useState<ForecastScenario[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [accountId, setAccountId] = useState<number | null>(null)
   const [data, setData] = useState<ForecastResult | null>(null)
   const [label, setLabel] = useState('')
   const [amount, setAmount] = useState('')
   const [fromMonth, setFromMonth] = useState(now.getMonth() + 1)
+  const [editingId, setEditingId] = useState<number | null>(null)
+
+  useEffect(() => {
+    api.accountList().then((list) => {
+      setAccounts(list)
+      setAccountId((id) => id ?? list.find((a) => a.type === 'main')?.id ?? list[0]?.id ?? null)
+    }).catch(() => undefined)
+  }, [])
 
   const load = useCallback(() => {
-    api.forecast(year, adjustments).then(setData).catch(() => undefined)
-  }, [year, adjustments])
+    if (accountId == null) return
+    const scenarioAdjustments: ScenarioAdjustment[] = adjustments.map(({ id, label, monthlyAmount, fromMonth }) => ({ id: String(id), label, monthlyAmount, fromMonth }))
+    api.forecast(year, accountId, scenarioAdjustments).then(setData).catch(() => undefined)
+  }, [year, accountId, adjustments])
 
   useEffect(() => {
     load()
   }, [load])
 
-  const addAdjustment = (): void => {
+  useEffect(() => {
+    if (accountId == null) return
+    api.forecastScenarioList(year, accountId).then(setAdjustments).catch(() => undefined)
+  }, [year, accountId])
+
+  const addAdjustment = async (): Promise<void> => {
     const n = Number(amount.replace(',', '.'))
-    if (!label.trim() || !isFinite(n) || n === 0) return
-    setAdjustments((a) => [
-      ...a,
-      { id: String(Date.now()), label: label.trim(), monthlyAmount: n, fromMonth }
-    ])
+    if (!label.trim() || !isFinite(n) || n === 0 || accountId == null) return
+    if (editingId != null) {
+      await api.forecastScenarioUpdate(editingId, { label: label.trim(), monthlyAmount: n, fromMonth })
+      setAdjustments((all) => all.map((a) => a.id === editingId ? { ...a, label: label.trim(), monthlyAmount: n, fromMonth } : a))
+      setEditingId(null)
+    } else {
+      const created = await api.forecastScenarioCreate({ accountId, year, label: label.trim(), monthlyAmount: n, fromMonth })
+      setAdjustments((all) => [...all, created])
+    }
     setLabel('')
     setAmount('')
+  }
+
+  const editAdjustment = (scenario: ForecastScenario): void => {
+    setEditingId(scenario.id); setLabel(scenario.label); setAmount(String(scenario.monthlyAmount)); setFromMonth(scenario.fromMonth)
+  }
+
+  const deleteAdjustment = async (id: number): Promise<void> => {
+    await api.forecastScenarioDelete(id)
+    setAdjustments((all) => all.filter((a) => a.id !== id))
+    if (editingId === id) { setEditingId(null); setLabel(''); setAmount('') }
   }
 
   if (!data) {
@@ -64,12 +95,14 @@ export default function Forecast(): JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
         <h1 className="text-2xl font-semibold tracking-tight">Proiezioni e Scenari {year}</h1>
         <p className="text-sm text-muted-foreground">
           Proiezione basata sui movimenti ricorrenti rilevati e sulla media delle spese variabili degli
           ultimi 3 mesi.
-        </p>
+        </p></div>
+        <div className="flex gap-2"><Select value={accountId != null ? String(accountId) : ''} onValueChange={(v) => setAccountId(Number(v))}><SelectTrigger size="sm" className="w-52"><SelectValue placeholder="Scegli conto o carta" /></SelectTrigger><SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={String(a.id)}>{a.type === 'credit_card' ? 'Carta · ' : a.type === 'secondary' ? 'Conto secondario · ' : 'Conto principale · '}{a.name}</SelectItem>)}</SelectContent></Select><Select value={String(year)} onValueChange={(v) => setYear(Number(v))}><SelectTrigger size="sm" className="w-24"><SelectValue /></SelectTrigger><SelectContent>{[0, 1, 2, 3].map((d) => <SelectItem key={d} value={String(now.getFullYear() - d)}>{now.getFullYear() - d}</SelectItem>)}</SelectContent></Select></div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
@@ -208,8 +241,9 @@ export default function Forecast(): JSX.Element {
               </Select>
               <Button size="sm" onClick={addAdjustment}>
                 <Plus className="size-4" />
-                Aggiungi
+                {editingId != null ? 'Salva modifica' : 'Aggiungi'}
               </Button>
+              {editingId != null && <Button variant="ghost" size="sm" onClick={() => { setEditingId(null); setLabel(''); setAmount('') }}>Annulla</Button>}
             </div>
             {adjustments.length > 0 && (
               <Table>
@@ -229,10 +263,11 @@ export default function Forecast(): JSX.Element {
                         da {MONTH_NAMES[a.fromMonth - 1]}
                       </TableCell>
                       <TableCell className="w-10">
+                        <Button variant="ghost" size="sm" onClick={() => editAdjustment(a)}>Modifica</Button>
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          onClick={() => setAdjustments((list) => list.filter((x) => x.id !== a.id))}
+                          onClick={() => deleteAdjustment(a.id)}
                         >
                           <X className="size-4" />
                         </Button>

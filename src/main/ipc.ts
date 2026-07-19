@@ -17,6 +17,7 @@ import type {
   ColumnMapping,
   Rule,
   ScenarioAdjustment,
+  ForecastScenario,
   Tag,
   Transaction,
   TransactionFilter,
@@ -52,6 +53,7 @@ interface TxDbRow {
   category_id: number | null
   notes: string | null
   status: 'active' | 'duplicate_ignored'
+  card_link_count?: number
 }
 
 function toTx(r: TxDbRow, tags: Tag[]): Transaction {
@@ -73,7 +75,8 @@ function toTx(r: TxDbRow, tags: Tag[]): Transaction {
     categoryId: r.category_id,
     notes: r.notes,
     status: r.status,
-    tags
+    tags,
+    cardLinkCount: r.card_link_count ?? 0
   }
 }
 
@@ -182,7 +185,8 @@ export function registerIpcHandlers(): void {
 
     const rows = db
       .prepare(
-        `SELECT t.*, a.name AS account_name, a.type AS account_type, a.color AS account_color, a.icon AS account_icon FROM transactions t
+        `SELECT t.*, a.name AS account_name, a.type AS account_type, a.color AS account_color, a.icon AS account_icon,
+                (SELECT COUNT(*) FROM credit_card_links l WHERE l.main_transaction_id = t.id) AS card_link_count FROM transactions t
          JOIN accounts a ON a.id = t.account_id WHERE ${where}
          ORDER BY ${sortCol} ${sortDir}, t.id ${sortDir} LIMIT ? OFFSET ?`
       )
@@ -305,10 +309,12 @@ export function registerIpcHandlers(): void {
     const rows = db.prepare(
       `SELECT t.* FROM transactions t JOIN accounts a ON a.id = t.account_id
        WHERE a.type = 'credit_card' AND t.status = 'active'
-         AND t.id NOT IN (SELECT card_transaction_id FROM credit_card_links)
-         AND t.date_reg BETWEEN date(?, '-60 days') AND date(?, '+7 days')
+         AND (t.id NOT IN (SELECT card_transaction_id FROM credit_card_links)
+              OR t.id IN (SELECT card_transaction_id FROM credit_card_links WHERE main_transaction_id = ?))
+         AND (t.date_reg BETWEEN date(?, '-60 days') AND date(?, '+7 days')
+              OR t.id IN (SELECT card_transaction_id FROM credit_card_links WHERE main_transaction_id = ?))
        ORDER BY t.date_reg DESC LIMIT 80`
-    ).all(parent.date_reg, parent.date_reg) as unknown as TxDbRow[]
+    ).all(id, parent.date_reg, parent.date_reg, id) as unknown as TxDbRow[]
     return rows.map((r) => toTx(r, []))
   })
   handle('tx:linkedCardTransactions', (id: number) => {
@@ -321,6 +327,15 @@ export function registerIpcHandlers(): void {
   handle('tx:linkCardTransactions', (mainId: number, cardIds: number[]) => {
     const db = getDb()
     transaction(() => {
+      const main = db.prepare(`SELECT a.type FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE t.id = ?`).get(mainId) as { type: string } | undefined
+      if (!main || main.type === 'credit_card') throw new Error('L’addebito deve appartenere a un conto, non a una carta.')
+      if (cardIds.length > 0) {
+        const placeholders = cardIds.map(() => '?').join(',')
+        const valid = db.prepare(`SELECT COUNT(*) AS count FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE t.id IN (${placeholders}) AND a.type = 'credit_card'`).get(...cardIds) as { count: number }
+        if (valid.count !== cardIds.length) throw new Error('Puoi associare solo movimenti di carte.')
+        const alreadyUsed = db.prepare(`SELECT COUNT(*) AS count FROM credit_card_links WHERE card_transaction_id IN (${placeholders}) AND main_transaction_id != ?`).get(...cardIds, mainId) as { count: number }
+        if (alreadyUsed.count > 0) throw new Error('Uno o più movimenti carta sono già associati a un altro addebito.')
+      }
       db.prepare('DELETE FROM credit_card_links WHERE main_transaction_id = ?').run(mainId)
       const insert = db.prepare('INSERT OR IGNORE INTO credit_card_links (main_transaction_id, card_transaction_id) VALUES (?, ?)')
       for (const cardId of cardIds) insert.run(mainId, cardId)
@@ -494,7 +509,7 @@ export function registerIpcHandlers(): void {
   })
 
   // ---------- Report ----------
-  handle('report:year', (year: number): YearReport => {
+  handle('report:year', (year: number, accountId: number): YearReport => {
     const db = getDb()
     const income = Array(12).fill(0) as number[]
     const expense = Array(12).fill(0) as number[]
@@ -505,10 +520,10 @@ export function registerIpcHandlers(): void {
                 SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS expense
          FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
          WHERE t.status = 'active' AND (t.category_id IS NULL OR c.type != 'transfer')
-           AND strftime('%Y', t.date_reg) = ?
+           AND t.account_id = ? AND strftime('%Y', t.date_reg) = ?
          GROUP BY month`
       )
-      .all(String(year)) as unknown as { month: number; income: number; expense: number }[]
+      .all(accountId, String(year)) as unknown as { month: number; income: number; expense: number }[]
     for (const t of totals) {
       income[t.month - 1] = Math.round(t.income * 100) / 100
       expense[t.month - 1] = Math.round(t.expense * 100) / 100
@@ -523,10 +538,10 @@ export function registerIpcHandlers(): void {
          JOIN categories c ON c.id = t.category_id
          LEFT JOIN categories p ON p.id = c.parent_id
          WHERE t.status = 'active' AND t.amount < 0 AND c.type = 'expense'
-           AND strftime('%Y', t.date_reg) = ?
+           AND t.account_id = ? AND strftime('%Y', t.date_reg) = ?
          GROUP BY COALESCE(p.id, c.id), month`
       )
-      .all(String(year)) as unknown as {
+      .all(accountId, String(year)) as unknown as {
       categoryId: number
       name: string
       color: string
@@ -567,9 +582,23 @@ export function registerIpcHandlers(): void {
 
   // ---------- Dashboard / Forecast ----------
   handle('dashboard:stats', dashboardStats)
-  handle('forecast:get', (year: number, adjustments: ScenarioAdjustment[]) =>
-    forecast(year, adjustments ?? [])
+  handle('forecast:get', (year: number, accountId: number, adjustments: ScenarioAdjustment[]) =>
+    forecast(year, accountId, adjustments ?? [])
   )
+  handle('forecastScenario:list', (year: number, accountId: number): ForecastScenario[] =>
+    getDb().prepare('SELECT id, account_id AS accountId, year, label, monthly_amount AS monthlyAmount, from_month AS fromMonth FROM forecast_scenarios WHERE year = ? AND account_id = ? ORDER BY id').all(year, accountId) as unknown as ForecastScenario[]
+  )
+  handle('forecastScenario:create', (input: Omit<ForecastScenario, 'id'>): ForecastScenario => {
+    if (!input.label.trim() || !Number.isFinite(input.monthlyAmount) || input.monthlyAmount === 0) throw new Error('Scenario non valido')
+    const result = getDb().prepare('INSERT INTO forecast_scenarios (account_id, year, label, monthly_amount, from_month) VALUES (?, ?, ?, ?, ?)').run(input.accountId, input.year, input.label.trim(), input.monthlyAmount, input.fromMonth)
+    return { ...input, id: Number(result.lastInsertRowid), label: input.label.trim() }
+  })
+  handle('forecastScenario:update', (id: number, patch: Partial<Omit<ForecastScenario, 'id' | 'accountId' | 'year'>>) => {
+    const current = getDb().prepare('SELECT label, monthly_amount, from_month FROM forecast_scenarios WHERE id = ?').get(id) as { label: string; monthly_amount: number; from_month: number } | undefined
+    if (!current) throw new Error('Scenario non trovato')
+    getDb().prepare('UPDATE forecast_scenarios SET label = ?, monthly_amount = ?, from_month = ? WHERE id = ?').run(patch.label?.trim() || current.label, patch.monthlyAmount ?? current.monthly_amount, patch.fromMonth ?? current.from_month, id)
+  })
+  handle('forecastScenario:delete', (id: number) => getDb().prepare('DELETE FROM forecast_scenarios WHERE id = ?').run(id))
 
   // ---------- Settings ----------
   handle('settings:dataInfo', () => {

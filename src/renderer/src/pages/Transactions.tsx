@@ -154,6 +154,8 @@ export default function Transactions({
     setCardLinkTx(null); refresh()
   }
 
+  const linkedCardSum = cardCandidates.filter((card) => linkedCardIds.has(card.id)).reduce((sum, card) => sum + card.amount, 0)
+
   const doExport = async (format: 'csv' | 'xlsx'): Promise<void> => {
     const path = await api.txExport(filter, format)
     if (path) { setExportMsg(`Esportato in ${path}`); toast.success('Esportazione completata', path) }
@@ -373,6 +375,12 @@ export default function Transactions({
                     <span className="truncate" title={tx.description}>
                       {tx.description}
                     </span>
+                    {tx.cardLinkCount > 0 && (
+                      <Badge variant="outline" className="shrink-0 gap-1 border-primary/35 bg-primary/10 text-primary" title={`${tx.cardLinkCount} movimenti carta associati`}>
+                        <CreditCard className="size-3" />
+                        {tx.cardLinkCount} associat{tx.cardLinkCount === 1 ? 'o' : 'i'}
+                      </Badge>
+                    )}
                   </div>
                   {tx.merchant && <div className="text-xs text-muted-foreground">{tx.merchant}</div>}
                   {tx.notes && (
@@ -383,7 +391,7 @@ export default function Transactions({
                   )}
                   {cardLinkTx?.id === tx.id && (
                     <div className="mt-2 rounded-lg border bg-muted/30 p-2.5">
-                      <p className="mb-2 text-xs font-medium">Movimenti carta da collegare</p>
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-medium">Movimenti carta collegati all'addebito</p><span className={cn('text-xs font-semibold tabular-nums', Math.abs(Math.abs(linkedCardSum) - Math.abs(tx.amount)) < 0.01 ? 'text-chart-income' : 'text-chart-expense')}>Carta: {fmtEur(Math.abs(linkedCardSum))} · Addebito: {fmtEur(Math.abs(tx.amount))}</span></div>
                       {cardCandidates.length === 0 ? <p className="text-xs text-muted-foreground">Nessun movimento carta disponibile nelle ultime settimane.</p> : <div className="max-h-36 space-y-1 overflow-y-auto">{cardCandidates.map((card) => <label key={card.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-accent"><Checkbox checked={linkedCardIds.has(card.id)} onCheckedChange={(checked) => setLinkedCardIds((ids) => { const next = new Set(ids); if (checked === true) next.add(card.id); else next.delete(card.id); return next })} /><span className="w-20 tabular-nums text-muted-foreground">{fmtDate(card.dateReg)}</span><span className="min-w-0 flex-1 truncate">{card.description}</span><Amount value={card.amount} className="text-xs" /></label>)}</div>}
                       <div className="mt-2 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setCardLinkTx(null)}>Annulla</Button><Button size="sm" onClick={saveCardLink}>Salva collegamento</Button></div>
                     </div>
@@ -433,7 +441,7 @@ export default function Transactions({
                   </div>
                 </TableCell>
                 <TableCell>
-                  {tx.amount < 0 && <Button variant="ghost" size="icon-sm" title="Collega movimenti carta" onClick={() => openCardLink(tx)}><CreditCard className="size-4" /></Button>}
+                  {tx.amount < 0 && tx.accountType !== 'credit_card' && <Button variant={cardLinkTx?.id === tx.id ? 'secondary' : 'ghost'} size="icon-sm" title="Espandi associazioni carta" onClick={() => openCardLink(tx)}><CreditCard className="size-4" /></Button>}
                   <Button
                     variant="ghost"
                     size="icon-sm"

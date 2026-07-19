@@ -69,6 +69,7 @@ export interface Transaction {
   notes: string | null
   status: TransactionStatus
   tags: Tag[]
+  cardLinkCount: number
   linkedCardTransactions?: Transaction[]
 }
 
@@ -183,6 +184,7 @@ export interface ImportFileInfo {
 
 export interface BudgetLine {
   id: number
+  accountId: number
   year: number
   categoryId: number
   month: number | null // null = annuale (ripartito), 1-12 = specifico mese
@@ -238,6 +240,15 @@ export interface ScenarioAdjustment {
   label: string
   monthlyAmount: number // positivo = entrata extra, negativo = spesa extra
   fromMonth: number // 1-12
+}
+
+export interface ForecastScenario {
+  id: number
+  accountId: number
+  year: number
+  label: string
+  monthlyAmount: number
+  fromMonth: number
 }
 
 export interface ForecastMonth {
@@ -355,13 +366,13 @@ export interface BudgetApi {
   ruleTest(field: RuleField, matchType: RuleMatchType, pattern: string): Promise<number>
   ruleApplyAll(onlyUncategorized: boolean): Promise<number>
   // budget
-  budgetGet(year: number): Promise<BudgetLine[]>
-  budgetSet(year: number, categoryId: number, month: number | null, amount: number): Promise<void>
-  budgetVsActual(year: number, month: number): Promise<BudgetVsActual[]>
-  budgetCopyFromActual(year: number, sourceYear: number): Promise<number>
+  budgetGet(year: number, accountId: number): Promise<BudgetLine[]>
+  budgetSet(year: number, accountId: number, categoryId: number, month: number | null, amount: number): Promise<void>
+  budgetVsActual(year: number, month: number, accountId: number): Promise<BudgetVsActual[]>
+  budgetCopyFromActual(year: number, sourceYear: number, accountId: number): Promise<number>
   // export / report
   txExport(filter: TransactionFilter, format: 'csv' | 'xlsx'): Promise<string | null>
-  reportYear(year: number): Promise<YearReport>
+  reportYear(year: number, accountId: number): Promise<YearReport>
   // google drive
   gdriveStatus(): Promise<GDriveStatus>
   gdriveConfigure(clientId: string, clientSecret: string): Promise<void>
@@ -370,8 +381,12 @@ export interface BudgetApi {
   gdriveListFiles(): Promise<GDriveFile[]>
   gdriveImport(fileId: string, name: string): Promise<ImportAnalysis>
   // dashboard / forecast
-  dashboard(year: number): Promise<DashboardStats>
-  forecast(year: number, adjustments: ScenarioAdjustment[]): Promise<ForecastResult>
+  dashboard(year: number, accountId: number): Promise<DashboardStats>
+  forecast(year: number, accountId: number, adjustments: ScenarioAdjustment[]): Promise<ForecastResult>
+  forecastScenarioList(year: number, accountId: number): Promise<ForecastScenario[]>
+  forecastScenarioCreate(input: Omit<ForecastScenario, 'id'>): Promise<ForecastScenario>
+  forecastScenarioUpdate(id: number, patch: Partial<Omit<ForecastScenario, 'id' | 'accountId' | 'year'>>): Promise<void>
+  forecastScenarioDelete(id: number): Promise<void>
   // settings
   dataInfo(): Promise<DataInfo>
   backupNow(): Promise<string>

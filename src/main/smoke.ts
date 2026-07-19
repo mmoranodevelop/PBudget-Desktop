@@ -49,13 +49,13 @@ export async function runSmokeTest(): Promise<void> {
   log('regole riapplicate', applied)
 
   // dashboard e forecast
-  const stats = dashboardStats(2026)
+  const stats = dashboardStats(2026, 1)
   log('dashboard ytd (entrate/uscite)', [stats.ytdIncome.toFixed(2), stats.ytdExpense.toFixed(2)])
   log('dashboard saldo', stats.balance)
   log('non categorizzati', stats.uncategorizedCount)
   if (stats.ytdIncome <= 0 || stats.ytdExpense <= 0) throw new Error('SMOKE FAIL: KPI vuoti')
 
-  const fc = forecast(2026, [{ id: 'x', label: 'test', monthlyAmount: -200, fromMonth: 8 }])
+  const fc = forecast(2026, 1, [{ id: 'x', label: 'test', monthlyAmount: -200, fromMonth: 8 }])
   log('ricorrenze rilevate', fc.recurring.length)
   log('saldo fine anno (base/scenario)', [fc.yearEndBalance, fc.yearEndScenarioBalance])
   if (fc.yearEndScenarioBalance >= fc.yearEndBalance) {

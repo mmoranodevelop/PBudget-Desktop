@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CalendarRange, Copy, Plus, Trash2 } from 'lucide-react'
-import type { BudgetVsActual, Category } from '@shared/types'
+import type { Account, BudgetVsActual, Category } from '@shared/types'
 import { api, fmtEur, MONTH_NAMES, MONTH_SHORT } from '@/api'
 import { BudgetBar, CategorySelect, ModalShell } from '@/components'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -27,10 +27,20 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
   const [detail, setDetail] = useState<BudgetVsActual | null>(null)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [accountId, setAccountId] = useState<number | null>(null)
+
+  useEffect(() => {
+    api.accountList().then((list) => {
+      setAccounts(list)
+      setAccountId((id) => id ?? list.find((a) => a.type === 'main')?.id ?? list[0]?.id ?? null)
+    }).catch(() => undefined)
+  }, [])
 
   const load = useCallback(() => {
-    api.budgetVsActual(year, month).then((result) => { setRows(result); setLoading(false) }).catch(() => undefined)
-  }, [year, month])
+    if (accountId == null) return
+    api.budgetVsActual(year, month, accountId).then((result) => { setRows(result); setLoading(false) }).catch(() => undefined)
+  }, [year, month, accountId])
 
   useEffect(() => {
     load()
@@ -39,7 +49,8 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
   const addLine = async (): Promise<void> => {
     const amount = Number(addAmount.replace(',', '.'))
     if (addCat == null || !isFinite(amount) || amount <= 0) return
-    await api.budgetSet(year, addCat, null, amount)
+    if (accountId == null) return
+    await api.budgetSet(year, accountId, addCat, null, amount)
     setAddCat(null)
     setAddAmount('')
     load()
@@ -49,7 +60,8 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
   const copyFromActual = async (): Promise<void> => {
     setBusy(true)
     try {
-      await api.budgetCopyFromActual(year, year - 1)
+      if (accountId == null) return
+      await api.budgetCopyFromActual(year, year - 1, accountId)
       load()
       toast.success('Budget copiato', `Valori ricavati dai movimenti del ${year - 1}.`)
     } finally {
@@ -60,15 +72,17 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
   const setMonthly = async (categoryId: number, m: number, value: string): Promise<void> => {
     const amount = Number(value.replace(',', '.'))
     if (!isFinite(amount) || amount < 0) return
-    await api.budgetSet(year, categoryId, m, amount)
-    const updated = await api.budgetVsActual(year, month)
+    if (accountId == null) return
+    await api.budgetSet(year, accountId, categoryId, m, amount)
+    const updated = await api.budgetVsActual(year, month, accountId)
     setRows(updated)
     if (detail) setDetail(updated.find((r) => r.categoryId === detail.categoryId) ?? null)
   }
 
   const removeLine = async (categoryId: number): Promise<void> => {
-    await api.budgetSet(year, categoryId, null, 0)
-    for (let m = 1; m <= 12; m++) await api.budgetSet(year, categoryId, m, 0)
+    if (accountId == null) return
+    await api.budgetSet(year, accountId, categoryId, null, 0)
+    for (let m = 1; m <= 12; m++) await api.budgetSet(year, accountId, categoryId, m, 0)
     setDetail(null)
     load()
     toast.success('Budget eliminato')
@@ -90,6 +104,10 @@ export default function Budget({ categories }: { categories: Category[] }): JSX.
           </p>
         </div>
         <div className="flex gap-2">
+          <Select value={accountId != null ? String(accountId) : ''} onValueChange={(v) => setAccountId(Number(v))}>
+            <SelectTrigger size="sm" className="w-52"><SelectValue placeholder="Scegli conto o carta" /></SelectTrigger>
+            <SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={String(a.id)}>{a.type === 'credit_card' ? 'Carta · ' : a.type === 'secondary' ? 'Conto secondario · ' : 'Conto principale · '}{a.name}</SelectItem>)}</SelectContent>
+          </Select>
           <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
             <SelectTrigger size="sm" className="w-32">
               <SelectValue />

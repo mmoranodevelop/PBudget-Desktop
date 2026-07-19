@@ -4,7 +4,7 @@ import type { BudgetLine, BudgetVsActual, DashboardStats } from '@shared/types'
 // Nei KPI entrate/uscite sono esclusi i trasferimenti
 const NOT_TRANSFER = `(t.category_id IS NULL OR c.type != 'transfer')`
 
-export function dashboardStats(year: number): DashboardStats {
+export function dashboardStats(year: number, accountId: number): DashboardStats {
   const db = getDb()
   const now = new Date()
   const currentMonth = year === now.getFullYear() ? now.getMonth() + 1 : 12
@@ -15,10 +15,10 @@ export function dashboardStats(year: number): DashboardStats {
               SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS income,
               SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS expense
        FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
-       WHERE t.status = 'active' AND strftime('%Y', t.date_reg) = ? AND ${NOT_TRANSFER}
+       WHERE t.status = 'active' AND t.account_id = ? AND strftime('%Y', t.date_reg) = ? AND ${NOT_TRANSFER}
        GROUP BY month ORDER BY month`
     )
-    .all(String(year)) as unknown as { month: number; income: number; expense: number }[]
+    .all(accountId, String(year)) as unknown as { month: number; income: number; expense: number }[]
 
   const monthlySeries = Array.from({ length: 12 }, (_, i) => {
     const m = monthly.find((r) => r.month === i + 1)
@@ -30,19 +30,19 @@ export function dashboardStats(year: number): DashboardStats {
   const ytdExpense = monthlySeries.slice(0, currentMonth).reduce((a, m) => a + m.expense, 0)
 
   const initial = (
-    db.prepare("SELECT COALESCE(SUM(initial_balance), 0) AS b FROM accounts WHERE type != 'credit_card'").get() as { b: number }
+    db.prepare('SELECT initial_balance AS b FROM accounts WHERE id = ?').get(accountId) as { b: number }
   ).b
   const startingBalanceDate = (
-    db.prepare("SELECT MIN(initial_balance_date) AS d FROM accounts WHERE type != 'credit_card' AND initial_balance_date IS NOT NULL").get() as { d: string | null }
+    db.prepare('SELECT initial_balance_date AS d FROM accounts WHERE id = ?').get(accountId) as { d: string | null }
   ).d
   const totalAll = (
     db
       .prepare(
         `SELECT COALESCE(SUM(t.amount), 0) AS s FROM transactions t JOIN accounts a ON a.id = t.account_id
-         WHERE t.status = 'active' AND a.type != 'credit_card'
+         WHERE t.status = 'active' AND t.account_id = ?
            AND t.date_reg >= COALESCE(a.initial_balance_date, '0001-01-01')`
       )
-      .get() as { s: number }
+      .get(accountId) as { s: number }
   ).s
   const balance = initial + totalAll
 
@@ -51,19 +51,19 @@ export function dashboardStats(year: number): DashboardStats {
     db
       .prepare(
         `SELECT COALESCE(SUM(t.amount), 0) AS s FROM transactions t JOIN accounts a ON a.id = t.account_id
-         WHERE t.status = 'active' AND a.type != 'credit_card' AND t.date_reg < ?
+         WHERE t.status = 'active' AND t.account_id = ? AND t.date_reg < ?
            AND t.date_reg >= COALESCE(a.initial_balance_date, '0001-01-01')`
       )
-      .get(`${year}-01-01`) as { s: number }
+      .get(accountId, `${year}-01-01`) as { s: number }
   ).s
   const daily = db
     .prepare(
       `SELECT t.date_reg AS date, SUM(t.amount) AS delta FROM transactions t JOIN accounts a ON a.id = t.account_id
-       WHERE t.status = 'active' AND a.type != 'credit_card' AND strftime('%Y', t.date_reg) = ?
+       WHERE t.status = 'active' AND t.account_id = ? AND strftime('%Y', t.date_reg) = ?
          AND t.date_reg >= COALESCE(a.initial_balance_date, '0001-01-01')
        GROUP BY t.date_reg ORDER BY t.date_reg`
     )
-    .all(String(year)) as unknown as { date: string; delta: number }[]
+    .all(accountId, String(year)) as unknown as { date: string; delta: number }[]
   let running = initial + beforeYear
   const balanceSeries = daily.map((d) => {
     running += d.delta
@@ -75,26 +75,24 @@ export function dashboardStats(year: number): DashboardStats {
       `SELECT c.id AS categoryId, c.name, c.color, SUM(-t.amount) AS amount
        FROM transactions t JOIN categories c ON c.id = t.category_id
        WHERE t.status = 'active' AND t.amount < 0 AND c.type = 'expense'
-         AND strftime('%Y', t.date_reg) = ?
+         AND t.account_id = ? AND strftime('%Y', t.date_reg) = ?
        GROUP BY c.id ORDER BY amount DESC LIMIT 6`
     )
-    .all(String(year)) as unknown as DashboardStats['topCategories']
+    .all(accountId, String(year)) as unknown as DashboardStats['topCategories']
 
-  const budgetAlerts = budgetVsActual(year, currentMonth)
+  const budgetAlerts = budgetVsActual(year, currentMonth, accountId)
     .filter((b) => b.budgetMonth > 0 && b.actualMonth > b.budgetMonth)
     .map((b) => ({ categoryName: b.categoryName, budget: b.budgetMonth, actual: b.actualMonth }))
 
   const uncategorizedCount = (
     db
       .prepare(
-        `SELECT COUNT(*) AS c FROM transactions WHERE status = 'active' AND category_id IS NULL`
+        `SELECT COUNT(*) AS c FROM transactions WHERE status = 'active' AND account_id = ? AND category_id IS NULL`
       )
-      .get() as { c: number }
+      .get(accountId) as { c: number }
   ).c
   const pendingDuplicates = (
-    db
-      .prepare(`SELECT COUNT(*) AS c FROM transactions WHERE status = 'duplicate_ignored'`)
-      .get() as { c: number }
+    db.prepare(`SELECT COUNT(*) AS c FROM transactions WHERE status = 'duplicate_ignored' AND account_id = ?`).get(accountId) as { c: number }
   ).c
 
   return {
@@ -119,41 +117,41 @@ export function dashboardStats(year: number): DashboardStats {
 
 // ---------- Budget ----------
 
-export function budgetGet(year: number): BudgetLine[] {
+export function budgetGet(year: number, accountId: number): BudgetLine[] {
   return getDb()
     .prepare(
-      'SELECT id, year, category_id AS categoryId, month, amount FROM budget_lines WHERE year = ?'
+      'SELECT id, account_id AS accountId, year, category_id AS categoryId, month, amount FROM budget_lines WHERE year = ? AND account_id = ?'
     )
-    .all(year) as unknown as BudgetLine[]
+    .all(year, accountId) as unknown as BudgetLine[]
 }
 
-export function budgetSet(year: number, categoryId: number, month: number | null, amount: number): void {
+export function budgetSet(year: number, accountId: number, categoryId: number, month: number | null, amount: number): void {
   const db = getDb()
   if (amount === 0) {
     if (month === null) {
-      db.prepare('DELETE FROM budget_lines WHERE year = ? AND category_id = ? AND month IS NULL').run(
-        year, categoryId
+      db.prepare('DELETE FROM budget_lines WHERE year = ? AND account_id = ? AND category_id = ? AND month IS NULL').run(
+        year, accountId, categoryId
       )
     } else {
-      db.prepare('DELETE FROM budget_lines WHERE year = ? AND category_id = ? AND month = ?').run(
-        year, categoryId, month
+      db.prepare('DELETE FROM budget_lines WHERE year = ? AND account_id = ? AND category_id = ? AND month = ?').run(
+        year, accountId, categoryId, month
       )
     }
     return
   }
   db.prepare(
-    `INSERT INTO budget_lines (year, category_id, month, amount) VALUES (?, ?, ?, ?)
-     ON CONFLICT(year, category_id, month) DO UPDATE SET amount = excluded.amount`
-  ).run(year, categoryId, month, amount)
+    `INSERT INTO budget_lines (account_id, year, category_id, month, amount) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(account_id, year, category_id, month) DO UPDATE SET amount = excluded.amount`
+  ).run(accountId, year, categoryId, month, amount)
 }
 
 /**
  * Confronto budget vs actual. Il budget su una categoria padre funge da "cluster":
  * aggrega gli actual di tutte le sottocategorie.
  */
-export function budgetVsActual(year: number, month: number): BudgetVsActual[] {
+export function budgetVsActual(year: number, month: number, accountId: number): BudgetVsActual[] {
   const db = getDb()
-  const lines = budgetGet(year)
+  const lines = budgetGet(year, accountId)
   const cats = db
     .prepare('SELECT id, name, color, parent_id AS parentId FROM categories')
     .all() as unknown as { id: number; name: string; color: string; parentId: number | null }[]
@@ -166,10 +164,10 @@ export function budgetVsActual(year: number, month: number): BudgetVsActual[] {
               SUM(-t.amount) AS spent
        FROM transactions t
        WHERE t.status = 'active' AND t.amount < 0 AND t.category_id IS NOT NULL
-         AND strftime('%Y', t.date_reg) = ?
+         AND t.account_id = ? AND strftime('%Y', t.date_reg) = ?
        GROUP BY t.category_id, month`
     )
-    .all(String(year)) as unknown as { catId: number; month: number; spent: number }[]
+    .all(accountId, String(year)) as unknown as { catId: number; month: number; spent: number }[]
 
   const actualFor = (categoryId: number, m: number): number => {
     let sum = 0
@@ -218,7 +216,7 @@ export function budgetVsActual(year: number, month: number): BudgetVsActual[] {
   return out.sort((a, b) => b.budgetYear - a.budgetYear)
 }
 
-export function budgetCopyFromActual(year: number, sourceYear: number): number {
+export function budgetCopyFromActual(year: number, sourceYear: number, accountId: number): number {
   const db = getDb()
   // budget annuale per categoria padre (o categoria senza padre) = actual dell'anno sorgente
   const rows = db
@@ -226,14 +224,14 @@ export function budgetCopyFromActual(year: number, sourceYear: number): number {
       `SELECT COALESCE(c.parent_id, c.id) AS catId, SUM(-t.amount) AS spent
        FROM transactions t JOIN categories c ON c.id = t.category_id
        WHERE t.status = 'active' AND t.amount < 0 AND c.type = 'expense'
-         AND strftime('%Y', t.date_reg) = ?
+         AND t.account_id = ? AND strftime('%Y', t.date_reg) = ?
        GROUP BY COALESCE(c.parent_id, c.id)`
     )
-    .all(String(sourceYear)) as unknown as { catId: number; spent: number }[]
+    .all(accountId, String(sourceYear)) as unknown as { catId: number; spent: number }[]
   let n = 0
   for (const r of rows) {
     if (r.spent > 0) {
-      budgetSet(year, r.catId, null, Math.round(r.spent))
+      budgetSet(year, accountId, r.catId, null, Math.round(r.spent))
       n++
     }
   }
