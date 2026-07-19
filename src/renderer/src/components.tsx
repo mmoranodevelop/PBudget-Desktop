@@ -1,23 +1,45 @@
-import { ReactNode, useMemo } from 'react'
-import type { Category } from '@shared/types'
+import { ReactNode, useMemo, type CSSProperties } from 'react'
+import type { Account, Category } from '@shared/types'
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue
 } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { AccountIcon } from '@/components/account-icon'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+
+export function AccountAvatarSwitcher({ accounts, value, onChange, className }: {
+  accounts: Account[]
+  value: number | null
+  onChange: (id: number) => void
+  className?: string
+}): JSX.Element {
+  return (
+    <TooltipProvider>
+      <div className={cn('flex max-w-full items-center gap-1 rounded-xl border bg-card/70 p-1', className)} aria-label="Seleziona conto o carta">
+        {accounts.map((account) => {
+          const selected = account.id === value
+          const type = account.type === 'credit_card' ? 'Carta di credito' : account.type === 'secondary' ? 'Conto secondario' : 'Conto principale'
+          return <Tooltip key={account.id}><TooltipTrigger asChild><button type="button" aria-label={`${type}: ${account.name}`} aria-pressed={selected} onClick={() => onChange(account.id)} className={cn('account-avatar', selected ? 'account-avatar--selected' : 'account-avatar--muted')} style={selected ? { '--account-color': account.color } as CSSProperties : undefined}><AccountIcon icon={account.icon} className="size-4" /></button></TooltipTrigger><TooltipContent sideOffset={7}><span className="font-medium">{account.name}</span><span className="ml-1 opacity-75">· {type}</span></TooltipContent></Tooltip>
+        })}
+      </div>
+    </TooltipProvider>
+  )
+}
 
 export function ModalShell({
-  title, description, children, onClose, wide
+  title, description, children, onClose, wide, className
 }: {
   title: string
   description?: string
   children: ReactNode
   onClose: () => void
   wide?: boolean
+  className?: string
 }): JSX.Element {
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className={cn(wide && 'sm:max-w-2xl')}>
+      <DialogContent className={cn(wide && 'sm:max-w-2xl', className)}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}

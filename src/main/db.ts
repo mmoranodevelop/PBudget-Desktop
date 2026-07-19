@@ -43,6 +43,27 @@ CREATE TABLE IF NOT EXISTS categories (
   is_system INTEGER NOT NULL DEFAULT 0,
   sort_order INTEGER NOT NULL DEFAULT 0
 );
+CREATE TRIGGER IF NOT EXISTS prevent_duplicate_category_insert
+BEFORE INSERT ON categories
+WHEN EXISTS (
+  SELECT 1 FROM categories
+  WHERE lower(trim(name)) = lower(trim(NEW.name))
+    AND COALESCE(parent_id, -1) = COALESCE(NEW.parent_id, -1)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Esiste già una categoria con questo nome nello stesso livello');
+END;
+CREATE TRIGGER IF NOT EXISTS prevent_duplicate_category_update
+BEFORE UPDATE OF name, parent_id ON categories
+WHEN EXISTS (
+  SELECT 1 FROM categories
+  WHERE id != NEW.id
+    AND lower(trim(name)) = lower(trim(NEW.name))
+    AND COALESCE(parent_id, -1) = COALESCE(NEW.parent_id, -1)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Esiste già una categoria con questo nome nello stesso livello');
+END;
 
 CREATE TABLE IF NOT EXISTS mapping_profiles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
